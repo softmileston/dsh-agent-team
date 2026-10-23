@@ -554,18 +554,24 @@ export async function runtimeWithTeam(options?: { mode?: 'team'; mainPanelId?: s
   // The Host's own verdict on the bounded unread queue; specs flip it to prove
   // the page discloses a capped page instead of reading as the whole queue.
   let inboxHasMore = false
+  let mainInboxRows: Array<Record<string, unknown> & { readonly workspaceId: string }> = []
   const inbox = vi.fn(async ({ workspaceId }: { workspaceId: string }) => {
     const scoped = inboxRows.filter(row => row.workspaceId === workspaceId)
     const holdsUnread = (row: { readonly item: Record<string, unknown> }): boolean => ((row.item as { unreadCount?: number }).unreadCount ?? 0) > 0
     const items = scoped.filter(holdsUnread).map(row => row.item)
     const recent = scoped.filter(row => !holdsUnread(row)).map(row => row.item)
-    const unread = items.reduce((sum, item) => sum + ((item as { unreadCount?: number }).unreadCount ?? 0), 0)
-    const direct = items.reduce((sum, item) => sum + ((item as { directCount?: number }).directCount ?? 0), 0)
-    return { ok: true as const, value: { humanMemberId: 'member:human', items, recent, hasMore: inboxHasMore, totalUnreadCount: unread, totalDirectCount: direct } }
+    const main = mainInboxRows.filter(row => row.workspaceId === workspaceId)
+    const unread = [...items, ...main].reduce((sum, item) => sum + ((item as { unreadCount?: number }).unreadCount ?? 0), 0)
+    const direct = [...items, ...main].reduce((sum, item) => sum + ((item as { directCount?: number }).directCount ?? 0), 0)
+    return { ok: true as const, value: { humanMemberId: 'member:human', items, main, recent, hasMore: inboxHasMore, totalUnreadCount: unread, totalDirectCount: direct } }
   })
   const seedInbox = (rows: ReadonlyArray<{ readonly workspaceId: string } & Record<string, unknown>>, options?: { readonly hasMore?: boolean }): void => {
     inboxRows = rows.map(row => ({ workspaceId: row.workspaceId, item: row as Record<string, unknown> }))
     inboxHasMore = options?.hasMore ?? false
+    wakeAll()
+  }
+  const seedMainInbox = (rows: ReadonlyArray<Record<string, unknown> & { readonly workspaceId: string }>): void => {
+    mainInboxRows = [...rows]
     wakeAll()
   }
   const changesStream = async function* (request: AgentTeamChangesRequest, signal?: AbortSignal) {
@@ -747,5 +753,5 @@ export async function runtimeWithTeam(options?: { mode?: 'team'; mainPanelId?: s
   const team = await runtime.mount({ inject: [...inject], apply })
   const view = runtime.renderRoot()
   const failThreadHistory = (message?: string): void => { threadHistoryFailure = message }
-  return { runtime, team, view, panelInfo: runtime.panelInfo, selectPanel, disposeWorkspace, disposeSettings, members, humanProfile, setHumanProfile, getHumanAvatar, putHumanAvatar, removeHumanAvatar, seedHumanProfile, failHumanProfile, failHumanProfileWrite, environment, seedEnvironment, failEnvironment, joinWorkspace, leaveWorkspace, addMember, status, viewProjects, createProject, updateProject, archiveProject, addProjectOwner, removeProjectOwner, failProjectOwnerWrite, putAttachment, getAttachment, updateMember, recoverMember, archiveMember, modelCatalog, postMainMessage, startThread, readMainStream, mainStreamHistory, requireMainRead, reply, changeTask, promoteThread, resolveTaskRefs, resolveMessageRefs, publishAgentReply, publishPresence, publishWorkspaceUpdate, publishGlobalUpdate, seedProject, publishProjectUpdate, failChanges, recoverChanges, readThread, loadThreadHistory, threadObservations, changes, inbox, seedInbox, openSession, failThreadHistory, changeSubscriptionsReady }
+  return { runtime, team, view, seedMainInbox, panelInfo: runtime.panelInfo, selectPanel, disposeWorkspace, disposeSettings, members, humanProfile, setHumanProfile, getHumanAvatar, putHumanAvatar, removeHumanAvatar, seedHumanProfile, failHumanProfile, failHumanProfileWrite, environment, seedEnvironment, failEnvironment, joinWorkspace, leaveWorkspace, addMember, status, viewProjects, createProject, updateProject, archiveProject, addProjectOwner, removeProjectOwner, failProjectOwnerWrite, putAttachment, getAttachment, updateMember, recoverMember, archiveMember, modelCatalog, postMainMessage, startThread, readMainStream, mainStreamHistory, requireMainRead, reply, changeTask, promoteThread, resolveTaskRefs, resolveMessageRefs, publishAgentReply, publishPresence, publishWorkspaceUpdate, publishGlobalUpdate, seedProject, publishProjectUpdate, failChanges, recoverChanges, readThread, loadThreadHistory, threadObservations, changes, inbox, seedInbox, openSession, failThreadHistory, changeSubscriptionsReady }
 }
