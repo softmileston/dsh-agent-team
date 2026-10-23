@@ -4,10 +4,10 @@
 
 **Blocked by:** 04
 
-**Status:** in-progress
+**Status:** complete
 
 - [x] `team/main-message-posted`、`team/main-stream-read`、`team/thread-started`；`team/message-sent` 在版本 2 起禁止写入
-- [ ] `team_message.post` / `start` 与 Human composer；非 owner 开 Thread 得到 `project_owner_required` 并被指向 `post`；owner 有主对话未读时写入要求先读；`replyToMessageRef` 限同一 scope（Host 与 tools 已完成；Human composer 待 Client）
+- [x] `team_message.post` / `start` 与 Human composer；非 owner 开 Thread 得到 `project_owner_required` 并被指向 `post`；owner 有主对话未读时写入要求先读；`replyToMessageRef` 限同一 scope（Host、tools 与 Human composer 均已完成）
 - [x] Project member 可在任何 Thread 回复；回复不自动 follow；mention 只产生一次 direct 通知，不开始也不恢复 Attention
-- [x] 卡片投影与主对话未读规则（spec §3.2、durable contract §3.3）（Host 投影完成；卡片渲染待 Client）
-- [ ] 桌面与 390×844 浏览器检查 composer 与卡片
+- [x] 卡片投影与主对话未读规则（spec §3.2、durable contract §3.3）（Host 投影与 Client 卡片渲染均已完成）
+- [x] 桌面与 390×844 浏览器检查 composer 与卡片
