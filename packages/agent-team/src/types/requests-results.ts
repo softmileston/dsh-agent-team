@@ -906,20 +906,40 @@ export interface AgentTeamViewItem {
   readonly lastActivityAt: string
 }
 
-/** One in-flight Task Thread for the team_view「活跃 task thread」radar: claimed, moving work, so an unexpected edit or a Task a reader was about to pick up resolves to "someone is on this". Unlike the Inbox's 「最近活跃」 slice, admission is not participation: every active Task Thread in the reader's authorized Projects appears, including Threads still holding unread. */
-export interface AgentTeamActiveTaskThread {
-  readonly taskRef: AgentTeamTaskRef
-  readonly threadRef: AgentTeamThreadRef
+/** How the reader stands to one Task on the board. */
+export type AgentTeamTaskRelation = 'executor' | 'project-owner' | 'none'
+
+/** One Task on the board: its current state, never a fact, so it is never unread. */
+export interface AgentTeamTaskBoardItem {
+  readonly workspaceId: WorkspaceId
   readonly projectRef: AgentTeamProjectRef
-  /** The Task's ordinal inside its home Project. */
-  readonly taskNumber?: number
-  readonly status: AgentTeamLiveTaskStatus
-  /** The Thread's opening line, trimmed and capped at 120 characters — the same bound the Inbox row uses. */
+  readonly projectName: string
+  readonly task: AgentTeamTask
+  readonly taskNumber: number
+  readonly threadRef: AgentTeamThreadRef
+  /** The Thread's bounded opening line. */
   readonly subject: string
-  /** Owners of the Task's live Claims, in claim order, deduped — the same rule the Inbox row and Project feed use. */
-  readonly members: readonly AgentTeamInboxActor[]
-  /** Instant of the newest fact on this Thread. */
+  /** Owners of the Task's live Claims, in claim order, deduped (the Inbox row's rule); empty once done or closed. */
+  readonly liveClaimOwners: readonly AgentTeamInboxActor[]
+  readonly lastActivitySequence: number
   readonly lastActivityAt: string
+  /** `executor` while the reader holds a live Claim, else `project-owner` for an owner of the Project. */
+  readonly relation: AgentTeamTaskRelation
+}
+
+export interface AgentTeamTaskBoardRequest {
+  readonly workspaceId: WorkspaceId
+  readonly projectRef?: AgentTeamProjectRef
+  /** Only Tasks the reader executes. */
+  readonly mine?: boolean
+}
+
+/** The Task board of the Projects a reader can see; the Human Client and `team_task board` render this same projection. */
+export interface AgentTeamTaskBoard {
+  /** Every open Task (todo, in_progress, in_review), newest activity first. */
+  readonly open: readonly AgentTeamTaskBoardItem[]
+  /** Per Project, the newest finished (done or closed) Tasks, at most `TASK_BOARD_FINISHED_PER_PROJECT` each, newest activity first. */
+  readonly finished: readonly AgentTeamTaskBoardItem[]
 }
 
 export interface AgentTeamViewRequest {
@@ -947,13 +967,11 @@ export interface AgentTeamView {
   readonly owners: readonly AgentTeamProjectMembership[]
   /** Validation rules version the ledger has adopted; Project owners exist from version 2. */
   readonly rulesVersion: number
-  /** Catalog of the response's scope: visible Tasks, their Threads, ordinals, radar rows, and Claims. With `includeCatalog` this is the whole request scope; otherwise only the Tasks and Threads the fact page and named Thread carry. */
+  /** Catalog of the response's scope: visible Tasks, their Threads, ordinals, and Claims. With `includeCatalog` this is the whole request scope; otherwise only the Tasks and Threads the fact page and named Thread carry. */
   readonly tasks: readonly AgentTeamTask[]
   readonly threads: readonly AgentTeamThread[]
   readonly taskNumbers: readonly { readonly taskRef: AgentTeamTaskRef; readonly taskNumber: number }[]
   readonly items: readonly AgentTeamViewItem[]
-  /** The「活跃 task thread」radar: in_progress / in_review Task Threads of the response's scope, newest activity first. With `includeCatalog` that is every such Thread in the reader's authorized Projects of this Workspace; otherwise only those the catalog carries. Independent of participation and unread state, so re-entry and pre-claim checks do not mistake in-flight work for a conflict. */
-  readonly activeTaskThreads: readonly AgentTeamActiveTaskThread[]
   readonly claims: readonly AgentTeamClaim[]
   readonly activities: readonly AgentTeamActivity[]
   readonly cursor: number

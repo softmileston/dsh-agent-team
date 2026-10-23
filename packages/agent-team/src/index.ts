@@ -144,6 +144,8 @@ import type {
   AgentTeamSetMemberStateRequest,
   AgentTeamStatus,
   AgentTeamTask,
+  AgentTeamTaskBoard,
+  AgentTeamTaskBoardRequest,
   AgentTeamTaskRequest,
   AgentTeamTaskResult,
   AgentTeamThreadAttentionRequest,
@@ -1642,6 +1644,12 @@ export default class AgentTeam extends TypertRemoteService {
     return this.requireLedger().inbox(agentTeamHumanActor(), request)
   }
 
+  @Remote('taskBoard')
+  taskBoard(request: AgentTeamTaskBoardRequest): AgentTeamTaskBoard {
+    this.requireWorkspace(request.workspaceId)
+    return this.requireLedger().taskBoard(agentTeamHumanActor(), request)
+  }
+
   /** Human's durable, atomically acknowledged Thread read. */
   @Remote('readThread')
   async readThread(request: AgentTeamThreadReadRequest): Promise<AgentTeamThreadReadResult> {
@@ -1741,6 +1749,20 @@ export default class AgentTeam extends TypertRemoteService {
     const actor = this.memberActor(agent)
     this.requireAgentWorkspace(actor, request.workspaceId)
     return this.requireLedger().listClaims(actor, request)
+  }
+
+  async promoteThreadForAgent(agent: Agent, request: AgentTeamPromoteThreadRequest): Promise<AgentTeamPromoteThreadResult> {
+    const actor = this.memberCall(agent, request.workspaceId)
+    const result = await this.requireLedger().promoteThread({ ...request, actor })
+    this.emitCommittedOutcome(result)
+    return result.value
+  }
+
+  taskBoardForAgent(agent: Agent, request: Omit<AgentTeamTaskBoardRequest, 'workspaceId'> & { readonly workspaceId?: WorkspaceId }): AgentTeamTaskBoard {
+    const actor = this.memberActor(agent)
+    if (request.workspaceId === undefined) return this.requireLedger().memberTaskBoard(actor, request)
+    this.requireAgentWorkspace(actor, request.workspaceId)
+    return this.requireLedger().taskBoard(actor, { ...request, workspaceId: request.workspaceId })
   }
 
   inboxForAgent(agent: Agent, request: { readonly workspaceId?: WorkspaceId; readonly limit?: number }): AgentTeamInbox {

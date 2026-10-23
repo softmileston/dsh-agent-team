@@ -59,7 +59,6 @@ import type {
   AgentTeamCreateProjectResult,
   AgentTeamDirectMarker,
   AgentTeamDmRequest,
-  AgentTeamActiveTaskThread,
   AgentTeamDmResult,
   AgentTeamDmSentOperation,
   AgentTeamHostActor,
@@ -70,6 +69,9 @@ import type {
   AgentTeamInboxDelta,
   AgentTeamInboxItem,
   AgentTeamMainInboxItem,
+  AgentTeamTaskBoard,
+  AgentTeamTaskBoardItem,
+  AgentTeamTaskBoardRequest,
   AgentTeamInitializedOperation,
   AgentTeamJoinProjectRequest,
   AgentTeamJoinProjectResult,
@@ -187,6 +189,9 @@ export function agentTeamHumanActor(): AgentTeamHumanActor {
 }
 
 const HOST_ACTOR: AgentTeamHostActor = Object.freeze({ kind: 'host', handle: 'agent-team' })
+
+/** Finished Tasks the board keeps per Project. */
+export const TASK_BOARD_FINISHED_PER_PROJECT = 5
 
 /** Highest validation-rules version this build implements; a ledger segment without a marker is version 1. */
 export const AGENT_TEAM_RULES_VERSION = 1
@@ -1777,6 +1782,56 @@ export class AgentTeamLedger {
       totalDirectCount: [...candidates, ...main].reduce((sum, item) => sum + item.directCount, 0) })
   }
 
+  taskBoard(actor: AgentTeamHumanActor | AgentTeamMemberActor, request: AgentTeamTaskBoardRequest): AgentTeamTaskBoard {
+    const authorized = this.assertActorForWorkspace(actor, request.workspaceId)
+    return this.taskBoardFor(authorized, [request.workspaceId], request)
+  }
+
+  memberTaskBoard(actor: AgentTeamMemberActor, request: Omit<AgentTeamTaskBoardRequest, 'workspaceId'>): AgentTeamTaskBoard {
+    const workspaces = this.workspacesOf(actor.memberId)
+    for (const workspaceId of workspaces) this.assertActorForWorkspace(actor, workspaceId)
+    return this.taskBoardFor(actor, workspaces, request)
+  }
+
+  private taskBoardFor(authorized: AgentTeamHumanActor | AgentTeamMemberActor, workspaceIds: readonly WorkspaceId[],
+    request: Omit<AgentTeamTaskBoardRequest, 'workspaceId'>): AgentTeamTaskBoard {
+    const memberId = authorized.memberId
+    if (request.projectRef !== undefined) {
+      const project = this.state.projects.get(request.projectRef)
+      if (project === undefined || !workspaceIds.includes(project.workspaceId)) throw new Error(`unknown Project ref '${request.projectRef}'`)
+      this.requireActiveProject(project.workspaceId, request.projectRef)
+      if (authorized.kind === 'member' && !this.isProjectMember(request.projectRef, memberId)) throw new Error(`Agent Member '${memberId}' is not authorized for Project '${request.projectRef}'`)
+    }
+    const taskNumbers = new Map(workspaceIds.flatMap(workspaceId => [...this.taskNumbers(workspaceId)]))
+    const open: AgentTeamTaskBoardItem[] = []
+    const finishedByProject = new Map<AgentTeamProjectRef, AgentTeamTaskBoardItem[]>()
+    for (const task of this.state.tasks.values()) {
+      if (request.projectRef !== undefined && task.projectRef !== request.projectRef) continue
+      const project = this.visibleProject(this.state.projects.get(task.projectRef))
+      if (project === undefined || !workspaceIds.includes(project.workspaceId)) continue
+      if (authorized.kind === 'member' && !this.isProjectMember(task.projectRef, memberId)) continue
+      const executor = this.hasActiveClaim(memberId, task.taskRef)
+      if (request.mine === true && !executor) continue
+      const newest = (this.state.factsByThread.get(task.threadRef) ?? []).at(-1)
+      if (newest === undefined) continue
+      const item: AgentTeamTaskBoardItem = Object.freeze({ workspaceId: project.workspaceId, projectRef: project.projectRef, projectName: project.name,
+        task, taskNumber: taskNumbers.get(task.taskRef) ?? 0, threadRef: task.threadRef,
+        subject: boundedOpeningLine(this.threadAnchor(task.threadRef).body, ONE_LINE_GIST_MAX_CHARACTERS),
+        liveClaimOwners: this.liveClaimOwners(task), lastActivitySequence: newest.sequence, lastActivityAt: newest.occurredAt,
+        relation: executor ? 'executor' : authorized.kind === 'human' || this.ownerSinceFrom(this.state, task.projectRef, memberId) !== undefined ? 'project-owner' : 'none' })
+      if (task.status === 'done' || task.status === 'closed') {
+        const finished = finishedByProject.get(task.projectRef) ?? []
+        finished.push(item)
+        finishedByProject.set(task.projectRef, finished)
+      } else {
+        open.push(item)
+      }
+    }
+    const newestFirst = (left: AgentTeamTaskBoardItem, right: AgentTeamTaskBoardItem) => right.lastActivitySequence - left.lastActivitySequence
+    const finished = [...finishedByProject.values()].flatMap(items => items.sort(newestFirst).slice(0, TASK_BOARD_FINISHED_PER_PROJECT)).sort(newestFirst)
+    return Object.freeze({ open: Object.freeze(open.sort(newestFirst)), finished: Object.freeze(finished) })
+  }
+
   private mainInboxItems(memberId: AgentTeamMemberId, workspaceIds: readonly WorkspaceId[]): readonly AgentTeamMainInboxItem[] {
     const rows: AgentTeamMainInboxItem[] = []
     for (const project of this.state.projects.values()) {
@@ -2232,7 +2287,6 @@ export class AgentTeamLedger {
       threads: Object.freeze(catalogThreads),
       taskNumbers: Object.freeze(catalogTasks.map(task => Object.freeze({ taskRef: task.taskRef, taskNumber: taskNumbers.get(task.taskRef) ?? 0 }))),
       items: Object.freeze(items),
-      activeTaskThreads: this.activeTaskThreads(catalogTasks, taskNumbers),
       claims: this.claimsForVisibleTasks(catalogTasks),
       activities: Object.freeze(selected.filter((fact): fact is Extract<AgentTeamThreadFact, { kind: 'activity' }> => fact.kind === 'activity').map(fact => fact.activity)),
       cursor: nextCursor,
@@ -4438,39 +4492,6 @@ export class AgentTeamLedger {
 
   private claimsForVisibleTasks(tasks: readonly AgentTeamTask[]): readonly AgentTeamClaim[] {
     return Object.freeze(tasks.flatMap(task => [...(this.state.claimsByTask.get(task.taskRef) ?? [])]))
-  }
-
-  /**
-   * The team_view「活跃 task thread」radar for a Workspace: every visible Task
-   * still in flight — in_progress or in_review, the two states a live Claim
-   * keeps a Task in — newest activity first. Unlike `recentInboxItems`, this is
-   * not a participation slice: admission is the Task being active in a Project
-   * the reader can see, whether or not the reader wrote in it, and a Thread
-   * still holding the reader's unread is not excluded. Rows carry the same
-   * `liveClaimOwners`口径 the Inbox and Project feed already use, so 「谁在这个
-   * Task 上」 never gains a second definition. Archived Projects are already
-   * absent from `visibleTasks`, so their Tasks never reach here.
-   */
-  private activeTaskThreads(visibleTasks: readonly AgentTeamTask[],
-    taskNumbers: ReadonlyMap<AgentTeamTaskRef, number>): readonly AgentTeamActiveTaskThread[] {
-    const rows: { row: AgentTeamActiveTaskThread; sequence: number }[] = []
-    for (const task of visibleTasks) {
-      if (task.status !== 'in_progress' && task.status !== 'in_review') continue
-      const thread = this.state.threads.get(task.threadRef)
-      if (thread === undefined) continue
-      const newest = (this.state.factsByThread.get(thread.threadRef) ?? []).at(-1)
-      if (newest === undefined) continue
-      const taskNumber = taskNumbers.get(task.taskRef)
-      rows.push({
-        row: Object.freeze({ taskRef: task.taskRef, threadRef: thread.threadRef, projectRef: task.projectRef,
-          ...(taskNumber === undefined ? {} : { taskNumber }), status: task.status,
-          subject: boundedOpeningLine(this.threadAnchor(thread.threadRef).body, ONE_LINE_GIST_MAX_CHARACTERS),
-          members: this.liveClaimOwners(task), lastActivityAt: newest.occurredAt }),
-        sequence: newest.sequence,
-      })
-    }
-    rows.sort((left, right) => right.sequence - left.sequence || left.row.threadRef.localeCompare(right.row.threadRef))
-    return Object.freeze(rows.map(entry => entry.row))
   }
 
   private tasksForClaims(claims: readonly AgentTeamClaim[], projected: ReadonlyMap<AgentTeamClaimRef, AgentTeamClaim>): readonly AgentTeamTask[] {
