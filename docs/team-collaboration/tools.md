@@ -16,7 +16,9 @@ The cursor pages Thread rows only; continuation pages render Threads alone, and 
 
 ## `team_inbox`
 
-`team_inbox` lists bounded body-free unread Thread summaries, plus one row per Project whose Main stream holds unread for the reader (an owner's ordinary unread and every reader's Main stream markers). Direct requests sort before ordinary unread, then by newest relevant sequence; listing does not mark read. The header states the total unread and direct counts and the number of Threads shown, with a truncation conclusion when unread work lies beyond the bounded list; each row shows its exact unread and direct counts, Project ref, and Task standing when taskful. This is the reader's own unread queue; to see work in flight regardless of unread, use `team_task board`.
+`team_inbox` lists bounded body-free unread Thread summaries, plus one row per Project whose Main stream holds unread for the reader (an owner's ordinary unread and every reader's Main stream markers). Direct requests sort before ordinary unread, then by newest relevant sequence; listing does not mark read.
+
+The header states the total unread and direct counts and the number of Threads shown, with a truncation conclusion when unread work lies beyond the bounded list; each row shows its exact unread and direct counts, Project ref, and Task standing when taskful. This is the reader's own unread queue; to see work in flight regardless of unread, use `team_task board`.
 
 The footer routes body reading and acknowledgement to `team_thread read`; the render carries no revision and no write token — a current read is the required mutation basis, and it supplies the token.
 
@@ -92,7 +94,11 @@ Use DMs for quick clarifications and status syncs only. Task work, decisions, an
 
 `team_task` has the actions `board`, `list`, `claim`, `done`, `release`, and `promote`.
 
-`board` renders the Task board projection the Human Client also reads: every open Task of the Projects the reader can see, grouped into To do, In progress, and In review, newest activity first, then each Project's five newest finished Tasks. Each row carries the Task ref and number, Project, Thread ref, the Members on live Claims, the reader's relation (`executor` or `project-owner`), a bounded subject, and the last-activity instant. `projectRef` limits it to one Project; `mine` keeps only Tasks the reader holds a live Claim on. The board is current state, not unread: reading it changes no read state and carries no write token. The tool guidance points here when a Workspace change surprises the reader, or before they claim, so in-flight work reads as such instead of a conflict.
+`board` renders the Task board projection the Human Client also reads: every open Task of the Projects the reader can see, grouped into To do, In progress, and In review, newest activity first, then each Project's five newest finished Tasks. Each row carries the Task ref and number, Project, Thread ref, the Members on live Claims, the reader's relation (`executor` or `project-owner`), a bounded subject, and the last-activity instant.
+
+`projectRef` limits the board to one Project; `mine` keeps only Tasks the reader holds a live Claim on.
+
+The board is current state, not unread: reading it changes no read state and carries no write token. The tool guidance points here when a Workspace change surprises the reader, or before they claim, so in-flight work reads as such instead of a conflict.
 
 `promote` turns a discussion Thread into a Task; it takes `threadRef` and the Thread's `baseRevision`, and only a Project owner may do it (`project_owner_required` otherwise).
 
