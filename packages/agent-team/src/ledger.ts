@@ -1263,7 +1263,9 @@ export class AgentTeamLedger {
       this.requireRulesVersion2('the Main stream')
       this.requireProjectMemberActor(actor, project.projectRef)
       const head = this.mainHeadFrom(this.state, project.projectRef)
-      const readThrough = request.readThroughSequence ?? head
+      // Without an explicit bound a read acknowledges only the first page of unread, so a backlog is read page by page, never skipped.
+      const backlog = request.readThroughSequence === undefined ? this.mainUnreadFrom(this.state, actor.memberId, project.projectRef) : []
+      const readThrough = request.readThroughSequence ?? (backlog.length > MAIN_READ_PAGE_SIZE ? backlog[MAIN_READ_PAGE_SIZE - 1]!.source.sequence : head)
       if (!Number.isInteger(readThrough) || readThrough < 0 || readThrough > head) {
         throw new Error(`readThroughSequence must be an integer from 0 to the Main stream head ${head}`)
       }
@@ -1277,7 +1279,7 @@ export class AgentTeamLedger {
           readThroughSequence: readThrough, inbox: prepared.inbox }),
       })
       // The picture shows what the reader saw before this read, so it is taken ahead of the commit.
-      const picture = this.mainReadPage(actor.memberId, project.projectRef, prepared.consumed)
+      const picture = this.mainReadPage(actor.memberId, project.projectRef, prepared.consumed, readThrough)
       await this.table.put(operation.operationId, operation)
       this.applyAndAdvanceProjectionVersion(operation)
       return this.committed(Object.freeze({ receipt: this.receipt(operation), projectRef: project.projectRef, readThroughSequence: readThrough,
@@ -4201,9 +4203,9 @@ export class AgentTeamLedger {
     return Object.freeze({ advances, consumed, inbox: this.inboxDelta([], [], [], [], [], [], [], consumed) })
   }
 
-  /** The newest page a read answers with, plus any older entry whose marker the read consumes, so no marker is cleared unseen. */
-  private mainReadPage(memberId: AgentTeamMemberId, projectRef: AgentTeamProjectRef, consumed: readonly AgentTeamMainMarker[]): readonly AgentTeamMainTimelineEntry[] {
-    const sources = this.mainSourcesFrom(this.state, projectRef)
+  /** The newest page through `readThrough` a read answers with, plus any older entry whose marker the read consumes, so no marker is cleared unseen. */
+  private mainReadPage(memberId: AgentTeamMemberId, projectRef: AgentTeamProjectRef, consumed: readonly AgentTeamMainMarker[], readThrough: number): readonly AgentTeamMainTimelineEntry[] {
+    const sources = this.mainSourcesFrom(this.state, projectRef).filter(source => source.sequence <= readThrough)
     const marked = new Set(consumed.map(marker => this.state.mainSourceByRef.get('messageRef' in marker ? marker.messageRef : marker.activityRef)?.sequence))
     const page = sources.filter((source, index) => index >= sources.length - MAIN_READ_PAGE_SIZE || marked.has(source.sequence))
     return this.mainEntries(page, this.mainUnreadFrom(this.state, memberId, projectRef))
@@ -4212,7 +4214,7 @@ export class AgentTeamLedger {
   private mainReadResult(memberId: AgentTeamMemberId, projectRef: AgentTeamProjectRef, readThrough: number,
     consumed: readonly AgentTeamMainMarker[], receipt?: AgentTeamOperationReceipt): AgentTeamMainStreamReadResult {
     return Object.freeze({ ...(receipt === undefined ? {} : { receipt }), projectRef, readThroughSequence: readThrough,
-      entries: this.mainReadPage(memberId, projectRef, consumed), consumedMarkers: consumed,
+      entries: this.mainReadPage(memberId, projectRef, consumed, readThrough), consumedMarkers: consumed,
       standing: this.mainStandingFrom(this.state, memberId, projectRef) })
   }
 

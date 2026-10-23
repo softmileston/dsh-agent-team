@@ -157,6 +157,19 @@ describe('Main stream posting and the unread gate', () => {
     expect((await post(team, human, 'reply')).value).toMatchObject({ kind: 'main_unread_required', unreadCount: 1 })
   })
 
+  it('reads an unread backlog longer than one page page by page instead of acknowledging what was not shown', async () => {
+    const team = await seed()
+    await readMain(team, team.owner.actor)
+    for (let index = 1; index <= 25; index += 1) await post(team, human, `note ${index}`)
+    const first = await readMain(team, team.owner.actor)
+    if (!first.committed) throw new Error('expected the first read to commit')
+    expect(first.value.entries.map(entry => entry.kind === 'message' && entry.message.body)).toEqual(Array.from({ length: 20 }, (_, index) => `note ${index + 1}`))
+    expect(first.value.standing.unreadCount).toBe(5)
+    const second = await readMain(team, team.owner.actor)
+    expect(second.value.entries.filter(entry => entry.unread).map(entry => entry.kind === 'message' && entry.message.body)).toEqual(['note 21', 'note 22', 'note 23', 'note 24', 'note 25'])
+    expect(second.value.standing.unreadCount).toBe(0)
+  })
+
   it('lets a non-owner member post without reading, and refuses a stranger', async () => {
     const team = await seed()
     await post(team, human, 'first')
