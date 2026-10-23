@@ -247,11 +247,12 @@ describe('Agent Team shipping contract', () => {
     expect(preset).toContain('the Member whose function owns the area decides and the work continues')
     expect(preset).toContain('A gap in your own verification is yours to close')
     // One mention rule, and it is body-authored: the `@` is what makes a
-    // mention, `@all` reaches the Project, and a Member an existing Thread has
-    // never carried is reported back rather than silently enrolled or refused.
+    // mention, it delivers the one Message and never the Thread, and `@all`
+    // carries no special meaning any more.
     expect(preset).toContain('Mention a Member by writing `@Handle` in the Message body')
-    expect(preset).toContain('`@all` reaches every Member of the Project')
-    expect(preset).toContain('never carried still commits your message, but delivers nothing to that Member')
+    expect(preset).toContain('A mention delivers that one Message to that Member and never the Thread')
+    expect(preset).not.toContain('@all')
+    expect(preset).not.toContain('undeliveredMentions')
     expect(preset).not.toContain('pass structured Member refs in the mentions parameter')
     expect(preset).toContain('use the injected absolute paths')
     expect(preset).toContain('formal deliverables')
