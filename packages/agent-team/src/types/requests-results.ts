@@ -791,12 +791,29 @@ export interface AgentTeamInboxItem {
   readonly attention?: AgentTeamThreadAttention
 }
 
+/** One Project's Main stream while it holds unread for the reader: owners count ordinary unread, every reader counts their Main stream markers. */
+export interface AgentTeamMainInboxItem {
+  readonly workspaceId: WorkspaceId
+  readonly projectRef: AgentTeamProjectRef
+  readonly projectName: string
+  readonly unreadCount: number
+  /** How many of them carry one of the reader's Main stream markers (a mention, a reply to the reader, an ownership change). */
+  readonly directCount: number
+  readonly previewText?: string
+  readonly newestSequence: number
+  readonly newestOccurredAt: string
+  readonly newestActor: AgentTeamInboxActor
+}
+
 export interface AgentTeamInbox {
   readonly humanMemberId: AgentTeamMemberId
   readonly items: readonly AgentTeamInboxItem[]
   readonly hasMore: boolean
+  /** Every Project whose Main stream holds unread for the reader, direct first, then newest first; never paged. */
+  readonly main: readonly AgentTeamMainInboxItem[]
   /** Human readers only: the 「最近活跃」 slice, Threads this reader took part in, newest activity first, at most ten, excluding Threads the unread queue carries. Agent readers get an empty slice, so the model-facing Inbox stays exactly the unread queue. */
   readonly recent: readonly AgentTeamInboxItem[]
+  /** Thread and Main stream unread together. */
   readonly totalUnreadCount: number
   readonly totalDirectCount: number
 }

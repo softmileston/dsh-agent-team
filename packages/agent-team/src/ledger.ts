@@ -69,6 +69,7 @@ import type {
   AgentTeamInboxRequest,
   AgentTeamInboxDelta,
   AgentTeamInboxItem,
+  AgentTeamMainInboxItem,
   AgentTeamInitializedOperation,
   AgentTeamJoinProjectRequest,
   AgentTeamJoinProjectResult,
@@ -1772,10 +1773,30 @@ export class AgentTeamLedger {
     const recent = authorized.kind === 'human'
       ? this.recentInboxItems(authorized.memberId, workspaceIds[0]!, unreadThreads, taskNumbers)
       : Object.freeze([] as AgentTeamInboxItem[])
+    const main = this.mainInboxItems(authorized.memberId, workspaceIds)
     return Object.freeze({ humanMemberId: this.initialization().data.humanMemberId,
-      items: Object.freeze(selected), hasMore: candidates.length > selected.length, recent,
-      totalUnreadCount: candidates.reduce((sum, item) => sum + item.unreadCount, 0),
-      totalDirectCount: candidates.reduce((sum, item) => sum + item.directCount, 0) })
+      items: Object.freeze(selected), hasMore: candidates.length > selected.length, main, recent,
+      totalUnreadCount: [...candidates, ...main].reduce((sum, item) => sum + item.unreadCount, 0),
+      totalDirectCount: [...candidates, ...main].reduce((sum, item) => sum + item.directCount, 0) })
+  }
+
+  private mainInboxItems(memberId: AgentTeamMemberId, workspaceIds: readonly WorkspaceId[]): readonly AgentTeamMainInboxItem[] {
+    const rows: AgentTeamMainInboxItem[] = []
+    for (const project of this.state.projects.values()) {
+      if (!workspaceIds.includes(project.workspaceId) || this.visibleProject(project) === undefined) continue
+      const unread = this.mainUnreadFrom(this.state, memberId, project.projectRef)
+      if (unread.length === 0) continue
+      const newest = unread.at(-1)!
+      const entry = this.mainEntry(newest.source, true, newest.direct)
+      const previewText = entry.kind === 'message' ? boundedOpeningLine(entry.message.body, ONE_LINE_GIST_MAX_CHARACTERS)
+        : entry.kind === 'thread-card' ? entry.card.anchor.preview : undefined
+      rows.push(Object.freeze({ workspaceId: project.workspaceId, projectRef: project.projectRef, projectName: project.name,
+        unreadCount: unread.length, directCount: unread.filter(item => item.direct).length,
+        ...(previewText === undefined ? {} : { previewText }), newestSequence: newest.source.sequence, newestOccurredAt: entry.occurredAt,
+        newestActor: this.memberActor(this.mainProducerFrom(this.state, newest.source) ?? this.initialization().data.humanMemberId) }))
+    }
+    rows.sort((left, right) => right.directCount - left.directCount || right.newestSequence - left.newestSequence)
+    return Object.freeze(rows)
   }
 
   private inboxActorFor(fact: AgentTeamThreadFact): AgentTeamInboxActor {

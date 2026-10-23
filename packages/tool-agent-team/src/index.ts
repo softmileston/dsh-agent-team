@@ -214,7 +214,7 @@ function rejectedFactLines(facts: readonly RejectedFact[]): string[] {
 
 const teamInbox = defineTool({
   name: 'team_inbox',
-  description: 'List your bounded Team Inbox across all joined Workspaces for triage: unread Thread summaries with counts, without message bodies and without marking anything read. Read a selected Thread with team_thread read; the inbox itself authorizes no mutation. This is your own unread queue; to see work others have in flight (whether or not you have unread on it), use the active-task-threads section of team_view.',
+  description: 'List your bounded Team Inbox across all joined Workspaces for triage: unread Thread summaries and one row per Project Main stream with unread for you, with counts, without message bodies and without marking anything read. Read a selected Thread with team_thread read; the inbox itself authorizes no mutation. This is your own unread queue; to see work others have in flight (whether or not you have unread on it), use the active-task-threads section of team_view.',
   parameters: { limit: { type: 'number' }, workspace: workspaceParam },
   output: {
     schema: { type: 'object', additionalProperties: false, properties: {
@@ -225,10 +225,14 @@ const teamInbox = defineTool({
         taskRef: { type: 'string' }, status: { type: 'string' }, revision: { type: 'number', required: true }, unreadCount: { type: 'number', required: true }, directCount: { type: 'number', required: true },
         taskNumber: { type: 'number' }, newestOccurredAt: { type: 'string' },
       } } },
+      main: { type: 'array', required: true, items: { type: 'object', additionalProperties: false, properties: {
+        workspaceId: { type: 'string', required: true }, projectRef: { type: 'string', required: true }, projectName: { type: 'string', required: true },
+        unreadCount: { type: 'number', required: true }, directCount: { type: 'number', required: true }, newestOccurredAt: { type: 'string', required: true },
+      } } },
     } },
         // Triage surface only: totals, both counters per row (direct renders even when zero), a bounded-list conclusion so truncation never reads as drained, and one route to the tool that acknowledges work. No subject, body, revision label, or write token: the required current read supplies the write basis.
     render: (_args, value) => {
-      if (value.items.length === 0) {
+      if (value.items.length === 0 && value.main.length === 0) {
         return [{ type: 'text', text: value.totalUnreadCount > 0
           ? `Inbox — ${value.totalUnreadCount} unread update(s) on Threads beyond this bounded page — read these Threads to drain the queue.`
           : 'Inbox empty — no unread Team work.' }]
@@ -237,9 +241,10 @@ const teamInbox = defineTool({
         ? '; the unread queue is bounded and more Threads sit beyond this page — read these to drain it, or ask for up to 100 rows.'
         : '.'
       return [{ type: 'text', text: [
-        `Inbox — ${value.totalUnreadCount} unread update(s) total, ${value.totalDirectCount} direct, across ${value.items.length} Thread(s) shown${more}`,
+        `Inbox — ${value.totalUnreadCount} unread update(s) total, ${value.totalDirectCount} direct, across ${value.main.length} Main stream(s) and ${value.items.length} Thread(s) shown${more}`,
+        ...value.main.map(row => `${row.workspaceId} · ${row.projectRef} Main stream (${row.projectName}) · ${row.unreadCount} unread, ${row.directCount} direct · newest ${formatTeamTimestamp(row.newestOccurredAt)}`),
         ...value.items.map(item => `${item.workspaceId} · ${item.threadRef}${item.projectRef === undefined ? '' : ` · ${item.projectRef}`}${item.taskRef === undefined ? '' : ` · ${taskStanding(item)}`} · ${item.unreadCount} unread, ${item.directCount} direct${item.newestOccurredAt === undefined ? '' : ` · newest ${formatTeamTimestamp(item.newestOccurredAt)}`}`),
-        'Read a selected Thread with team_thread read. Listing changes no read state and supplies no write token.',
+        `Read a selected ${value.main.length === 0 ? 'Thread with team_thread read' : 'Thread or Main stream with team_thread read (threadRef or projectRef)'}. Listing changes no read state and supplies no write token.`,
       ].join('\n') }]
     },
   },
@@ -250,6 +255,8 @@ const teamInbox = defineTool({
     const inbox = host.inboxForAgent(agent, { ...(args.workspace === undefined ? {} : { workspaceId: workspaceOf(args, agent) }), ...(args.limit === undefined ? {} : { limit: args.limit }) })
     return {
       totalUnreadCount: inbox.totalUnreadCount, totalDirectCount: inbox.totalDirectCount, hasMore: inbox.hasMore,
+      main: inbox.main.map(row => ({ workspaceId: row.workspaceId, projectRef: row.projectRef, projectName: row.projectName,
+        unreadCount: row.unreadCount, directCount: row.directCount, newestOccurredAt: row.newestOccurredAt })),
       items: inbox.items.map(item => {
         const taskNumber = item.taskNumber
         return { workspaceId: item.workspaceId, threadRef: item.thread.threadRef, projectRef: item.projectRef,
