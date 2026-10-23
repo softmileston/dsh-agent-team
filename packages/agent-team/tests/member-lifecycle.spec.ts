@@ -994,7 +994,7 @@ describe('Agent Team Member lifecycle', () => {
     expect(beforeThreads.threads).toEqual([])
     const plainStart = await call('team_message', { action: 'start', projectRef: project.project.projectRef, body: 'Agent-led taskless discussion' })
     expect(plainStart).toMatchObject({ kind: 'committed' })
-    const taskfulStart = await call('team_message', { action: 'start', asTask: true, projectRef: project.project.projectRef, body: 'Agent-led task with work' })
+    const taskfulStart = await call('team_message', { action: 'start', kind: 'task', projectRef: project.project.projectRef, body: 'Agent-led task with work' })
     expect(taskfulStart).toMatchObject({ kind: 'committed' })
     await call('team_message', { action: 'reply', threadRef: plainStart.threadRef, body: 'One follow-up reply', baseRevision: plainStart.revision })
     const threadDirectory = await call('team_view', {})
