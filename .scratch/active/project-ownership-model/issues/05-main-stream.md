@@ -11,3 +11,7 @@
 - [x] Project member 可在任何 Thread 回复；回复不自动 follow；mention 只产生一次 direct 通知，不开始也不恢复 Attention
 - [x] 卡片投影与主对话未读规则（spec §3.2、durable contract §3.3）（Host 投影与 Client 卡片渲染均已完成）
 - [x] 桌面与 390×844 浏览器检查 composer 与卡片
+
+实施中确定的技术取舍：主对话未读拒绝是独立结果 `main_unread_required`；非 owner 只被指向自己的 Main stream marker 拦写入；被指定或撤销 owner 的 Agent 计入 Project member（撤销后仍可见项目）；Agent 不指定读取位置时，未读超过一页按最旧一页逐页确认，不会跳过；Human 页面按已加载的最新条目确认。
+
+验证：版本 2 仍未对真实 ledger 启用，浏览器检查通过 `DSH_AGENT_TEAM_PREVIEW_RULES=1` 的一次性 profile 进行（`npm run test:browser` 7/7，截图在 `artifacts/browser/main-stream/`）；`npm test` 全部通过。
