@@ -45,7 +45,7 @@ import { installMemberCompaction, DEFAULT_MEMBER_COMPACTION, type MemberCompacti
 import { AGENT_TEAM_PLUGIN_ID, isAgentTeamContextSource, isAgentTeamSource } from './context-source.ts'
 import { surfaceVisibilityProbe, NOTIFICATION_BODY_MAX_CHARACTERS, NOTIFICATION_TRUNCATION_MARKER } from './surface-visibility.ts'
 import { CONTEXT_CONTINUITY_PROJECTION_KEY, carriedInputOf, createTeamContextProjectionDefinition, foldTeamContextProjection, isAcceptanceNotice, TEAM_INBOX_NOTICE_SUMMARY, TEAM_RECOVERY_NOTICE_SUMMARY } from './context-projection.ts'
-import { AGENT_TEAM_HUMAN_MEMBER_ID, AGENT_TEAM_PREVIEW_RULES_ENV, AGENT_TEAM_PREVIEW_RULES_VERSION, AGENT_TEAM_RULES_VERSION, AgentTeamLedger, agentTeamHostActor, agentTeamHumanActor } from './ledger.ts'
+import { AGENT_TEAM_HUMAN_MEMBER_ID, AgentTeamLedger, agentTeamHostActor, agentTeamHumanActor } from './ledger.ts'
 import { AGENT_TEAM_TOOL_NAMES, deepCopyCapabilities, memberMemoryDirectoryName, MemberRuntime, type TurnBoundary } from './member-runtime.ts'
 import { classifyRecoverableError, failureDetail, RecoveryCoordinator, type RecoveryFact } from './recovery.ts'
 import { StoredSessionReadError, StoredSessionReader, sessionFailureOf, type StoredSessionInspection } from './stored-session-reader.ts'
@@ -736,8 +736,6 @@ export default class AgentTeam extends TypertRemoteService {
     this.domain = domain
     const ledger = new AgentTeamLedger(domain.table('operations'), {
       isFactVisible: surfaceVisibilityProbe(memberId => this.handles.get(memberId)?.agent),
-      // Never set this on a ledger another profile shares: builds without the preview refuse the ledger afterwards.
-      rulesVersion: process.env[AGENT_TEAM_PREVIEW_RULES_ENV] === '1' ? AGENT_TEAM_PREVIEW_RULES_VERSION : AGENT_TEAM_RULES_VERSION,
     })
     this.ledger = ledger
     // A live Config edit in the constructor's window may have arrived before
