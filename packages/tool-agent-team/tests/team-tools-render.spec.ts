@@ -99,7 +99,7 @@ describe('team_view renders one address book', () => {
 describe('team_inbox renders triage, not a read', () => {
   it('header totals, both per-row counters (including zero direct), truncation conclusion, and a read route', () => {
     const text = renderText(teamTools().get('team_inbox')!, {}, {
-      totalUnreadCount: 9, totalDirectCount: 2, hasMore: false,
+      totalUnreadCount: 9, totalDirectCount: 2, hasMore: false, main: [],
       items: [
         { threadRef: 'thread:aaaa1111-0000-4000-8000-000000000001', projectRef: PROJECT, taskRef: TASK, status: 'in_progress', revision: 100, unreadCount: 4, directCount: 2, taskNumber: 7 },
         { threadRef: 'thread:bbbb2222-0000-4000-8000-000000000002', projectRef: PROJECT, revision: 101, unreadCount: 3, directCount: 0 },
@@ -116,26 +116,36 @@ describe('team_inbox renders triage, not a read', () => {
     // The Host's own verdict drives the conclusion, not a comparison the model
     // would have to reconstruct from two differently-shaped numbers.
     const capped = renderText(teamTools().get('team_inbox')!, {}, {
-      totalUnreadCount: 12, totalDirectCount: 5, hasMore: true,
+      totalUnreadCount: 12, totalDirectCount: 5, hasMore: true, main: [],
       items: [{ threadRef: 'thread:aaaa1111-0000-4000-8000-000000000001', projectRef: PROJECT, revision: 100, unreadCount: 7, directCount: 3 }],
     })
     expect(capped).toContain('more Threads sit beyond this page')
     expect(capped).toContain('up to 100 rows')
     const complete = renderText(teamTools().get('team_inbox')!, {}, {
-      totalUnreadCount: 2, totalDirectCount: 0, hasMore: false,
+      totalUnreadCount: 2, totalDirectCount: 0, hasMore: false, main: [],
       items: [{ threadRef: 'thread:aaaa1111-0000-4000-8000-000000000001', projectRef: PROJECT, revision: 100, unreadCount: 2, directCount: 0 }],
     })
     expect(complete).not.toContain('beyond this page')
   })
 
   it('empty inbox states there is no unread Team work', () => {
-    const text = renderText(teamTools().get('team_inbox')!, {}, { totalUnreadCount: 0, totalDirectCount: 0, hasMore: false, items: [] })
+    const text = renderText(teamTools().get('team_inbox')!, {}, { totalUnreadCount: 0, totalDirectCount: 0, hasMore: false, main: [], items: [] })
     expect(text).toContain('Inbox empty — no unread Team work.')
+  })
+
+  it('lists a Main stream row with its Project and routes the read through projectRef', () => {
+    const text = renderText(teamTools().get('team_inbox')!, {}, {
+      totalUnreadCount: 3, totalDirectCount: 1, hasMore: false, items: [],
+      main: [{ workspaceId: 'ws1', projectRef: PROJECT, projectName: 'Payments', unreadCount: 3, directCount: 1, newestOccurredAt: '2026-09-08T08:58:41.000Z' }],
+    })
+    expect(text).toContain('across 1 Main stream(s) and 0 Thread(s) shown')
+    expect(text).toContain(`ws1 · ${PROJECT} Main stream (Payments) · 3 unread, 1 direct · newest 2026-09-08T16:58:41+08:00`)
+    expect(text).toContain('team_thread read (threadRef or projectRef)')
   })
 
   it('renders no subject, body, revision label, or write token', () => {
     const text = renderText(teamTools().get('team_inbox')!, {}, {
-      totalUnreadCount: 1, totalDirectCount: 1, hasMore: false,
+      totalUnreadCount: 1, totalDirectCount: 1, hasMore: false, main: [],
       items: [{ threadRef: 'thread:aaaa1111-0000-4000-8000-000000000001', projectRef: PROJECT, revision: 100, unreadCount: 1, directCount: 1 }],
     })
     expect(text).not.toContain('revision')
@@ -627,7 +637,7 @@ describe('team tools render absolute event instants in UTC+8', () => {
 
   it('inbox rows carry the newest unread instant; view rows carry last activity', () => {
     const inbox = renderText(teamTools().get('team_inbox')!, {}, {
-      totalUnreadCount: 4, totalDirectCount: 1, hasMore: false,
+      totalUnreadCount: 4, totalDirectCount: 1, hasMore: false, main: [],
       items: [{ threadRef: THREAD, projectRef: PROJECT, taskRef: TASK, status: 'in_progress', revision: 100, unreadCount: 4, directCount: 1, taskNumber: 7, newestOccurredAt: '2026-09-08T08:58:41.000Z' }],
     })
     expect(inbox).toContain(`4 unread, 1 direct · newest 2026-09-08T16:58:41+08:00`)
