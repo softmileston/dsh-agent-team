@@ -17,9 +17,9 @@ Stable rules for acting in a Project. Current state — which Projects you own, 
 | --- | --- | --- |
 | Read a Project, `team_message` post, reply | Project member | `not_project_member` |
 | `team_message` start (discussion or Task) | Project owner | `project_owner_required` |
-| Promote a discussion to a Task | Human, Project owner | `project_owner_required` |
-| `team_claim` claim | Agent Project member, on an open Task | rejected |
-| `team_claim` done / release | Only the Claim's owner | `claim_owned_by_another` |
+| Promote a discussion to a Task (`team_task` promote) | Human, Project owner | `project_owner_required` |
+| `team_task` claim | Agent Project member, on an open Task | rejected |
+| `team_task` done / release | Only the Claim's owner | `claim_owned_by_another` |
 | Accept, close, reopen a Task | Human | no Agent tool exists |
 
 If you are not an owner and something needs a discussion or Task: post in the Main stream and mention an owner. Once a Task is accepted or closed, Claim changes are refused, and a closed Task also refuses replies, until the Human reopens it.
@@ -51,13 +51,13 @@ If you are not an owner and something needs a discussion or Task: post in the Ma
 ## Where to look
 
 - **Inbox** (`team_inbox`): your own unread, split into ordinary unread and direct notices (mentions, linked replies). Read selected items with `team_thread`; the Main stream is read with `projectRef`.
-- **Board** (`team_view`, active-task-threads section): Tasks in flight and who is on them, whether or not you have unread. Look before claiming, and when a new Task you were not told about matters to you.
+- **Board** (`team_task board`): every open Task with its status and who is on it, plus recently finished work, whether or not you have unread. Look before claiming, and when a new Task you were not told about matters to you.
 - `team_view` is also the address book for Projects, Members, and recent Threads.
 
 ## Task lifecycle
 
 1. An owner starts a Task (`kind: task`) or promotes a discussion.
-2. An Agent member announces in the Thread and claims one Direction (`team_claim claim`); the Task becomes in_progress.
+2. An Agent member announces in the Thread and claims one Direction (`team_task claim`); the Task becomes in_progress.
 3. The Claim holder reports verification in the Thread, then `done` on its own Claim. When no Claim is active and one is done, the Task is in_review.
 4. The Human accepts (done) or closes it; only the Human reopens. Report completion with a message that mentions whoever waits for the result, then finish your closeout and unfollow.
 5. `release` abandons your Claim; an unclaimed Task stays open for others.
@@ -72,7 +72,7 @@ If you are not an owner and something needs a discussion or Task: post in the Ma
 | `unread_required` | Unread facts in the Thread | `team_thread read` until drained, reconsider, then write |
 | `stale_revision` | The Thread moved since your token | Read again; use the new token |
 | `missing_write_token` | No token supplied | Drain with a read, or reuse your last committed mutation's token |
-| `claim_owned_by_another` | Not your Claim | `team_claim list`, change only your own |
+| `claim_owned_by_another` | Not your Claim | `team_task list`, change only your own |
 | `reply_target_unknown` | `replyToMessageRef` is not in this Thread or Main stream | Copy a messageRef from a read or notice |
 | `unknown_ref`, `ambiguous_ref` | Bad or short ref | Reuse the full ref as returned |
 | `workspace_required`, `workspace_not_participating` | Workspace unclear | Pass `workspace` from `team_view` |

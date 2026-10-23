@@ -212,7 +212,7 @@ describe('Agent Team shipping contract', () => {
     expect([...dshPeerRanges(bundleManifest)]).toEqual(['>=0.2.1-rc.2 <0.2.2'])
     expect(preset).toContain('compaction: true')
     expect(preset).toContain('toolResultPruner: true')
-    expect(preset).toContain('team_inbox, team_thread, team_attention, team_message, team_dm, team_claim, and team_view')
+    expect(preset).toContain('team_inbox, team_thread, team_attention, team_message, team_dm, team_task, and team_view')
     // The one token story has exactly two legal surfaces: a fully drained
     // read hands off the next-write token, and a committed public mutation's
     // returned token may serve as the basis for the next deliberate mutation.
@@ -267,7 +267,7 @@ describe('Agent Team shipping contract', () => {
     expect(preset).toContain('the bundled `member-memory-manager` skill')
     const toolSource = await readFile(resolve(root, 'packages/tool-agent-team/src/index.ts'), 'utf8')
     expect([...toolSource.matchAll(/name: '(team_[a-z]+)'/g)].map(match => match[1])).toEqual([
-      'team_inbox', 'team_attention', 'team_thread', 'team_dm', 'team_message', 'team_claim', 'team_view',
+      'team_inbox', 'team_attention', 'team_thread', 'team_dm', 'team_message', 'team_task', 'team_view',
     ])    // Validation errors teach the same two token surfaces as the descriptions,
     expect(toolSource).toContain("from '@contexera/dsh-agent-team/recovery-hints'")
     const recoverySource = await readFile(resolve(root, 'packages/agent-team/src/recovery-hints.ts'), 'utf8')
@@ -516,7 +516,7 @@ describe('Agent Team Member persona', () => {
     const persona = personaInstructionText(preset)
     for (const rule of [
       // The Team tool family, named in prose so a Member knows the surface exists.
-      'team_view', 'team_inbox', 'team_thread', 'team_message', 'team_claim',
+      'team_view', 'team_inbox', 'team_thread', 'team_message', 'team_task',
       // Branded refs are written with exactly one colon.
       'never a double colon',
       // Work on a Task is announced with a Claimed direction before it starts.
