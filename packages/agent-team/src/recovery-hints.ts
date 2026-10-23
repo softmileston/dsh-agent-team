@@ -104,10 +104,6 @@ export const RECOVERY_REGISTRY: readonly RecoveryEntry[] = Object.freeze([
     sentence: () => 'post speaks in a Project\'s Main stream: copy a projectRef from team_view, and use reply instead when you already hold a threadRef.',
   },
   {
-    kind: 'start_kind_conflict',
-    sentence: () => 'kind and asTask disagree — drop asTask and set kind alone: discussion for a conversation, task for work that needs a Task.',
-  },
-  {
     kind: 'dm_requires_member',
     sentence: () => 'Copy the memberRef of an enabled Agent from team_view; a DM is a private note, so shared work belongs in a Thread reply.',
   },

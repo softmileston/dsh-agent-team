@@ -17,7 +17,6 @@ const PRODUCED_KINDS: readonly string[] = Object.freeze([
   'not_project_member',
   'main_stream_addressing',
   'post_requires_project',
-  'start_kind_conflict',
   'unread_remaining',
   'stale_revision',
   'stale_revision_token_unrecognized',
