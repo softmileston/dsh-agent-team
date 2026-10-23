@@ -298,6 +298,25 @@ describe('Thread replies at rules version 2', () => {
   })
 })
 
+describe('Main stream rows in the Inbox', () => {
+  it('gives owners one row per Project with ordinary and direct counts, and a non-owner only the entries that name it', async () => {
+    const team = await seed()
+    await readMain(team, team.owner.actor)
+    committedMessage(await post(team, team.writer.actor, 'status update'))
+    committedMessage(await post(team, team.writer.actor, '@owner can you look?'))
+    await start(team, human, 'discussion', 'open question')
+    const [ownerRow] = team.ledger.memberInbox(team.owner.actor, {}).main
+    expect(ownerRow).toMatchObject({ projectRef: team.projectRef, projectName: 'alpha', unreadCount: 3, directCount: 1, previewText: 'open question' })
+    expect(team.ledger.inbox(human, { workspaceId: alpha })).toMatchObject({ main: [{ unreadCount: 2, directCount: 0 }], totalUnreadCount: 2, totalDirectCount: 0 })
+    expect(team.ledger.memberInbox(team.writer.actor, {}).main).toEqual([])
+    await readMain(team, team.owner.actor)
+    committedMessage(await post(team, team.owner.actor, '@writer yes'))
+    expect(team.ledger.memberInbox(team.writer.actor, {}).main).toMatchObject([{ unreadCount: 1, directCount: 1, newestActor: { name: 'owner' } }])
+    await readMain(team, team.writer.actor)
+    expect(team.ledger.memberInbox(team.writer.actor, {})).toMatchObject({ main: [], totalUnreadCount: 0 })
+  })
+})
+
 describe('owner changes in the Main stream', () => {
   it('gives the new owner a marker, and starts its ordinary unread at the grant', async () => {
     const team = await seed(2)

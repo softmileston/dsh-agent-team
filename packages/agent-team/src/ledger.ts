@@ -1349,16 +1349,13 @@ export class AgentTeamLedger {
       standing: this.mainStandingFrom(this.state, authorized.memberId, project.projectRef) })
   }
 
-  /** What one Member's Main stream markers say, per Project, for the Host's wake: only direct entries, never ordinary owner unread. */
+  /** One Member's unread Main stream entries, per Project, for the Host's wake: an owner's ordinary unread and every reader's markers. */
   mainNotificationFacts(memberId: AgentTeamMemberId): readonly { readonly project: AgentTeamProject; readonly entries: readonly AgentTeamMainTimelineEntry[] }[] {
-    const buckets = this.state.mainMarkersByMember.get(memberId)
-    if (buckets === undefined) return []
     const result: { project: AgentTeamProject; entries: readonly AgentTeamMainTimelineEntry[] }[] = []
-    for (const projectRef of buckets.keys()) {
-      const project = this.visibleProject(this.state.projects.get(projectRef))
-      if (project === undefined || !this.participatesIn(memberId, project.workspaceId)) continue
-      const direct = this.mainUnreadFrom(this.state, memberId, projectRef).filter(item => item.direct)
-      if (direct.length > 0) result.push({ project, entries: this.mainEntries(direct.map(item => item.source), direct) })
+    for (const project of this.state.projects.values()) {
+      if (this.visibleProject(project) === undefined || !this.participatesIn(memberId, project.workspaceId)) continue
+      const unread = this.mainUnreadFrom(this.state, memberId, project.projectRef)
+      if (unread.length > 0) result.push({ project, entries: this.mainEntries(unread.map(item => item.source), unread) })
     }
     return Object.freeze(result)
   }

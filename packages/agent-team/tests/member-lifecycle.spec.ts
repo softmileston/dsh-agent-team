@@ -941,7 +941,7 @@ describe('Agent Team Member lifecycle', () => {
     const project = await ctx.agentTeam.createProject({ requestId: requestId('bare-project'), workspaceId, name: 'ops', description: 'Ops work' })
     const before = await ctx.agentTeam.sendMessage({ asTask: true, requestId: requestId('pre-join'), workspaceId, projectRef: project.project.projectRef, body: 'Posted before anyone joined' })
     expect(before.kind).toBe('committed')
-    expect(ctx.agentTeam.inboxForAgent(agent, { workspaceId })).toEqual({ humanMemberId: AGENT_TEAM_HUMAN_MEMBER_ID, items: [], recent: [], hasMore: false, totalUnreadCount: 0, totalDirectCount: 0 })
+    expect(ctx.agentTeam.inboxForAgent(agent, { workspaceId })).toEqual({ humanMemberId: AGENT_TEAM_HUMAN_MEMBER_ID, items: [], main: [], recent: [], hasMore: false, totalUnreadCount: 0, totalDirectCount: 0 })
 
     // Project enrolment is retired — membership is derived from participation
     // — so a Workspace participant with no Projects at all is reachable by
@@ -1178,7 +1178,7 @@ describe('Agent Team Member lifecycle', () => {
     const view = ctx.agentTeam.view({ workspaceId })
     expect(view.threads).toHaveLength(0)
     expect(view.items).toHaveLength(0)
-    expect(ctx.agentTeam.inboxForAgent(recipient, { workspaceId })).toEqual({ humanMemberId: AGENT_TEAM_HUMAN_MEMBER_ID, items: [], recent: [], hasMore: false, totalUnreadCount: 0, totalDirectCount: 0 })
+    expect(ctx.agentTeam.inboxForAgent(recipient, { workspaceId })).toEqual({ humanMemberId: AGENT_TEAM_HUMAN_MEMBER_ID, items: [], main: [], recent: [], hasMore: false, totalUnreadCount: 0, totalDirectCount: 0 })
     expect(() => ctx.agentTeam.validateLedger()).not.toThrow()
 
     // A second DM carries the bounded adjacent context of the first exchange:
