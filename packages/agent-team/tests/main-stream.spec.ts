@@ -8,6 +8,7 @@ import { WorkspaceId } from '@deepseek-ai/dsh-workspace'
 import { MemoryMediaPool, MemoryStorageBackend } from './helpers/memory-backend.ts'
 import { AGENT_TEAM_HUMAN_MEMBER_ID, AgentTeamLedger, agentTeamHumanActor } from '../src/ledger.ts'
 import { agentTeamDomainSpec } from '../src/spec.ts'
+import { rulesV1Ledger } from './fixtures/rules-v1-ledger.ts'
 import type {
   AgentTeamAgentMember, AgentTeamMainTimelineEntry, AgentTeamMemberActor, AgentTeamMemberId, AgentTeamMessageRef, AgentTeamOperation,
   AgentTeamOperationId, AgentTeamProjectRef, AgentTeamRequestId, AgentTeamThreadRef,
@@ -48,6 +49,10 @@ function appendStored(pool: MemoryMediaPool, record: AgentTeamOperation): void {
   const sequence = head.sequence + 1
   const operationId = `operation:appended-${sequence}` as AgentTeamOperationId
   pool.media.get('agent_team')!.tables.get('operations')!.set(operationId, { ...record, sequence, operationId, previousOperationId: head.operationId })
+}
+
+function storedV1Records(): AgentTeamOperation[] {
+  return rulesV1Ledger.records.map(([, record]) => record as AgentTeamOperation)
 }
 
 const actorOf = (memberId: AgentTeamMemberId, handle: string): AgentTeamMemberActor => ({ kind: 'member', memberId, handle })
@@ -108,15 +113,13 @@ describe('rules version gating of the Main stream kinds', () => {
 
     for (const record of copied) {
       const pool = new MemoryMediaPool()
-      await new AgentTeamLedger(await openTable(pool)).initialize()
+      await new AgentTeamLedger(await openTable(pool), { rulesVersion: 1 }).initialize()
       appendStored(pool, record)
       const table = await openTable(pool)
       expect(() => new AgentTeamLedger(table), record.kind).toThrow(/needs rules version 2/)
     }
 
-    const old = await seed(1)
-    await old.ledger.sendMessage({ requestId: requestId('send'), actor: human, workspaceId: alpha, projectRef: old.projectRef, body: 'top level' })
-    const sent = storedRecords(old.pool).find(record => record.kind === 'team/message-sent')!
+    const sent = storedV1Records().find(record => record.kind === 'team/message-sent')!
     const pool = new MemoryMediaPool()
     await new AgentTeamLedger(await openTable(pool), { rulesVersion: 2 }).initialize()
     appendStored(pool, sent)
@@ -130,16 +133,10 @@ describe('rules version gating of the Main stream kinds', () => {
     await expect(readMain(team, human)).rejects.toThrow(/rules version 2/)
     await expect(start(team, human, 'discussion', 'topic')).rejects.toThrow(/rules version 2/)
     expect(() => page(team, human)).toThrow(/rules version 2/)
-    await team.ledger.sendMessage({ requestId: requestId('send'), actor: human, workspaceId: alpha, projectRef: team.projectRef, body: 'hi @writer', recipients: [team.writer.memberId] })
-    const sent = storedRecords(team.pool).find(record => record.kind === 'team/message-sent')!
+    const sent = storedV1Records().find(record => record.kind === 'team/message-sent')!
     expect(Object.keys((sent.data as { inbox: object }).inbox)).toEqual(['attention', 'directMarkers', 'activityMarkers'])
   })
 
-  it('refuses the top-level send once the ledger runs version 2', async () => {
-    const team = await seed(2)
-    await expect(team.ledger.sendMessage({ requestId: requestId('send'), actor: human, workspaceId: alpha, projectRef: team.projectRef, body: 'top level' }))
-      .rejects.toThrow(/replaced by startThread/)
-  })
 })
 
 describe('Main stream posting and the unread gate', () => {
@@ -325,19 +322,16 @@ describe('owner changes in the Main stream', () => {
 describe('earlier-version Threads and replay', () => {
   it('shows version-1 top-level Threads as cards that are not unread, and reproduces every projection on replay', async () => {
     const pool = new MemoryMediaPool()
+    pool.versions.set('agent_team', agentTeamDomainSpec.version)
+    pool.media.set('agent_team', { tables: new Map([['operations', new Map(rulesV1Ledger.records)]]), global: null })
     const table = await openTable(pool)
-    const legacy = new AgentTeamLedger(table)
-    await legacy.initialize()
-    const projectRef = (await legacy.createProject({ requestId: requestId('project'), actor: human, workspaceId: alpha, name: 'alpha', description: '', memberIds: [] })).value.project.projectRef
-    const sent = await legacy.sendMessage({ requestId: requestId('send'), actor: human, workspaceId: alpha, projectRef, body: 'old task', asTask: true })
-    if (sent.value.kind !== 'committed') throw new Error('send did not commit')
-
+    const projectRef = rulesV1Ledger.projectRef as AgentTeamProjectRef
     const upgraded = new AgentTeamLedger(table, { rulesVersion: 2 })
     await upgraded.initialize()
     const writer = await addAgent(upgraded, 'writer', [projectRef])
     await upgraded.addProjectOwner({ requestId: requestId('owner'), actor: human, workspaceId: alpha, projectRef, memberId: writer.memberId })
     const team: Seeded = { pool, table, ledger: upgraded, projectRef, owner: writer, writer, outsider: writer }
-    const card = cardOf(page(team, human).entries, sent.value.thread.threadRef)
+    const card = cardOf(page(team, human).entries, rulesV1Ledger.task.threadRef as AgentTeamThreadRef)
     expect(card).toMatchObject({ unread: false, card: { task: { taskNumber: 1, status: 'todo' }, replyCount: 0 } })
     // The older card is not unread for the Human or the new owner; the new owner only holds its grant marker.
     expect(page(team, human).standing.unreadCount).toBe(0)

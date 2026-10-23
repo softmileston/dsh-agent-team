@@ -345,6 +345,7 @@ describe('Agent Team Member lifecycle', () => {
     }
     const project = await ctx.agentTeam.createProject({ requestId: requestId('global-project'), workspaceId: otherId,
       name: 'work', description: '', memberIds: [memberId] })
+    await ctx.agentTeam.addProjectOwner({ requestId: requestId('global-owner'), workspaceId: otherId, projectRef: project.project.projectRef, memberId })
     const result = await ctx.tools.execute({ signal: new AbortController().signal, callId: ToolCallId('global-start'),
       name: 'team_message', arguments: { action: 'start', workspace: otherId, projectRef: project.project.projectRef, body: 'Working in joined checkout' }, agent })
     expect(result.isError, result.isError ? result.error.message : '').toBe(false)
@@ -363,37 +364,30 @@ describe('Agent Team Member lifecycle', () => {
     ctx.agentTeam.validateLedger()
   })
 
-  it('speaks, reads and starts through the Main stream tools once the ledger runs rules version 2', async () => {
-    const preview = process.env.DSH_AGENT_TEAM_PREVIEW_RULES
-    process.env.DSH_AGENT_TEAM_PREVIEW_RULES = '1'
-    try {
-      const adapter = new ScriptedAdapter()
-      const { ctx, workspaceId } = await realHarness(adapter)
-      const project = await ctx.agentTeam.createProject({ requestId: requestId('main-project'), workspaceId, name: 'work', description: '', memberIds: [] })
-      const projectRef = project.project.projectRef
-      const added = await ctx.agentTeam.addMember({ requestId: requestId('main-add'), workspaceId, handle: 'builder', description: '', presetId: 'team-member', projectRefs: [projectRef] })
-      const agent = ctx.agents.get(added.status.member.sessionId)!
-      const run = async (name: string, args: Record<string, unknown>) => {
-        const result = await ctx.tools.execute({ signal: new AbortController().signal, callId: ToolCallId(`main-${name}-${JSON.stringify(args)}`), name, arguments: args, agent })
-        return result.isError ? { error: result.error.message } : { text: JSON.stringify(result) }
-      }
-
-      await ctx.agentTeam.postMainMessage({ requestId: requestId('main-human'), workspaceId, projectRef, body: 'Plain note from the Human' })
-      expect(await run('team_thread', { action: 'read', projectRef })).toMatchObject({ text: expect.stringContaining('Plain note from the Human') })
-      expect(await run('team_message', { action: 'post', projectRef, body: 'Agent speaking' })).toMatchObject({ text: expect.stringContaining('Main stream message posted') })
-      // Not an owner yet: starting a Thread points back to the Main stream.
-      expect(await run('team_message', { action: 'start', projectRef, kind: 'discussion', body: 'x' })).toMatchObject({ error: expect.stringMatching(/project_owner_required.*team_message post/s) })
-
-      adapter.enqueue(textResponse('Noted my new ownership.'))
-      await ctx.agentTeam.addProjectOwner({ requestId: requestId('main-owner'), workspaceId, projectRef, memberId: added.status.member.memberId })
-      await agent.whenIdle()
-      expect(await run('team_message', { action: 'start', projectRef, kind: 'task', body: 'Build the importer' })).toMatchObject({ text: expect.stringContaining('Thread created') })
-      expect(ctx.agentTeam.mainStreamHistory({ workspaceId, projectRef }).entries.map(entry => entry.kind)).toEqual(['message', 'message', 'activity', 'thread-card'])
-      ctx.agentTeam.validateLedger()
-    } finally {
-      if (preview === undefined) delete process.env.DSH_AGENT_TEAM_PREVIEW_RULES
-      else process.env.DSH_AGENT_TEAM_PREVIEW_RULES = preview
+  it('speaks, reads and starts through the Main stream tools', async () => {
+    const adapter = new ScriptedAdapter()
+    const { ctx, workspaceId } = await realHarness(adapter)
+    const project = await ctx.agentTeam.createProject({ requestId: requestId('main-project'), workspaceId, name: 'work', description: '', memberIds: [] })
+    const projectRef = project.project.projectRef
+    const added = await ctx.agentTeam.addMember({ requestId: requestId('main-add'), workspaceId, handle: 'builder', description: '', presetId: 'team-member', projectRefs: [projectRef] })
+    const agent = ctx.agents.get(added.status.member.sessionId)!
+    const run = async (name: string, args: Record<string, unknown>) => {
+      const result = await ctx.tools.execute({ signal: new AbortController().signal, callId: ToolCallId(`main-${name}-${JSON.stringify(args)}`), name, arguments: args, agent })
+      return result.isError ? { error: result.error.message } : { text: JSON.stringify(result) }
     }
+
+    await ctx.agentTeam.postMainMessage({ requestId: requestId('main-human'), workspaceId, projectRef, body: 'Plain note from the Human' })
+    expect(await run('team_thread', { action: 'read', projectRef })).toMatchObject({ text: expect.stringContaining('Plain note from the Human') })
+    expect(await run('team_message', { action: 'post', projectRef, body: 'Agent speaking' })).toMatchObject({ text: expect.stringContaining('Main stream message posted') })
+    // Not an owner yet: starting a Thread points back to the Main stream.
+    expect(await run('team_message', { action: 'start', projectRef, kind: 'discussion', body: 'x' })).toMatchObject({ error: expect.stringMatching(/project_owner_required.*team_message post/s) })
+
+    adapter.enqueue(textResponse('Noted my new ownership.'))
+    await ctx.agentTeam.addProjectOwner({ requestId: requestId('main-owner'), workspaceId, projectRef, memberId: added.status.member.memberId })
+    await agent.whenIdle()
+    expect(await run('team_message', { action: 'start', projectRef, kind: 'task', body: 'Build the importer' })).toMatchObject({ text: expect.stringContaining('Thread created') })
+    expect(ctx.agentTeam.mainStreamHistory({ workspaceId, projectRef }).entries.map(entry => entry.kind)).toEqual(['message', 'message', 'activity', 'thread-card'])
+    ctx.agentTeam.validateLedger()
   })
 
   it('accepts a unique Workspace id abbreviation and points at the fix when the abbreviation is not unique', async () => {
@@ -432,7 +426,7 @@ describe('Agent Team Member lifecycle', () => {
     const project = await ctx.agentTeam.createProject({ requestId: requestId('shape-project'), workspaceId, name: 'engineering', description: 'Engineering work' })
     const added = await ctx.agentTeam.addMember({ requestId: requestId('shape-add'), workspaceId, handle: 'builder', description: 'Builds changes', presetId: 'team-member', projectRefs: [project.project.projectRef] })
     const agent = ctx.agents.get(added.status.member.sessionId)!
-    const started = await ctx.agentTeam.sendMessage({ requestId: requestId('shape-task'), workspaceId, projectRef: project.project.projectRef, body: 'Shape the argument contract', recipients: [added.status.member.memberId], asTask: true })
+    const started = await ctx.agentTeam.startThread({ requestId: requestId('shape-task'), workspaceId, projectRef: project.project.projectRef, body: 'Shape the argument contract', recipients: [added.status.member.memberId], kind: 'task' })
     if (started.kind !== 'committed') throw new Error(`expected committed start, received ${started.kind}`)
     const threadRef = started.thread!.threadRef
     const taskRef = started.task!.taskRef
@@ -488,7 +482,7 @@ describe('Agent Team Member lifecycle', () => {
 
     // Give the Member an active Claim so the release cleanup is observable
     // end-to-end.
-    const started = await ctx.agentTeam.sendMessage({ asTask: true, requestId: requestId('archive-task'), workspaceId, projectRef: project.project.projectRef, body: 'Build the feature', recipients: [memberId] })
+    const started = await ctx.agentTeam.startThread({ kind: 'task', requestId: requestId('archive-task'), workspaceId, projectRef: project.project.projectRef, body: 'Build the feature', recipients: [memberId] })
     if (started.kind !== 'committed') throw new Error(`expected committed start, received ${started.kind}`)
     const live = ctx.agents.get(added.status.member.sessionId)!
     await ctx.agentTeam.readThreadForAgent(live, { requestId: requestId('archive-read'), workspaceId, taskRef: started.task!.taskRef })
@@ -792,7 +786,7 @@ describe('Agent Team Member lifecycle', () => {
     const project = await ctx.agentTeam.createProject({ requestId: requestId('restart-project'), workspaceId, name: 'engineering', description: '' })
     const added = await ctx.agentTeam.addMember({ requestId: requestId('restart-add'), workspaceId, handle: 'builder', description: 'Builds the implementation', presetId: 'team-member', projectRefs: [project.project.projectRef] })
     const memberId = added.status.member.memberId
-    await ctx.agentTeam.sendMessage({ asTask: true, requestId: requestId('restart-send'), workspaceId, projectRef: project.project.projectRef, body: '@builder go' })
+    await ctx.agentTeam.startThread({ kind: 'task', requestId: requestId('restart-send'), workspaceId, projectRef: project.project.projectRef, body: '@builder go' })
     await ctx.agents.get(added.status.member.sessionId)!.whenIdle()
     const before = ctx.agentTeam.members().find(status => status.member.memberId === memberId)
     expect(before?.presence).toBe('error')
@@ -829,13 +823,13 @@ describe('Agent Team Member lifecycle', () => {
     // wake cleared before convergence. Parking reaches that end-state directly.
     const steer = vi.spyOn(agent, 'steer').mockImplementation(input => { agent.inbox.append('next-turn', input) })
 
-    const first = await ctx.agentTeam.sendMessage({ asTask: true, requestId: requestId('pre-turn-first'), workspaceId, projectRef: project.project.projectRef, body: '@builder investigate' })
+    const first = await ctx.agentTeam.startThread({ kind: 'task', requestId: requestId('pre-turn-first'), workspaceId, projectRef: project.project.projectRef, body: '@builder investigate' })
     expect(first.kind).toBe('committed')
     const firstNotice = agent.inbox.nextTurn.at(-1)!
     expect(firstNotice.source).toMatchObject({ kind: AGENT_TEAM_PLUGIN_ID, form: 'notice' })
     expect((ctx.agentTeam as unknown as { pendingTeamWakes: Map<string, unknown> }).pendingTeamWakes.has(firstNotice.id)).toBe(true)
 
-    const second = await ctx.agentTeam.sendMessage({ asTask: true, requestId: requestId('pre-turn-second'), workspaceId, projectRef: project.project.projectRef, body: '@builder investigate again' })
+    const second = await ctx.agentTeam.startThread({ kind: 'task', requestId: requestId('pre-turn-second'), workspaceId, projectRef: project.project.projectRef, body: '@builder investigate again' })
     expect(second.kind).toBe('committed')
     const replacement = ctx.agentTeam.members().find(status => status.member.memberId === added.status.member.memberId)!
     expect(replacement.diagnostic).toBeUndefined()
@@ -939,14 +933,14 @@ describe('Agent Team Member lifecycle', () => {
 
     // A message to an empty Project commits with an empty notification set.
     const project = await ctx.agentTeam.createProject({ requestId: requestId('bare-project'), workspaceId, name: 'ops', description: 'Ops work' })
-    const before = await ctx.agentTeam.sendMessage({ asTask: true, requestId: requestId('pre-join'), workspaceId, projectRef: project.project.projectRef, body: 'Posted before anyone joined' })
+    const before = await ctx.agentTeam.startThread({ kind: 'task', requestId: requestId('pre-join'), workspaceId, projectRef: project.project.projectRef, body: 'Posted before anyone joined' })
     expect(before.kind).toBe('committed')
     expect(ctx.agentTeam.inboxForAgent(agent, { workspaceId })).toEqual({ humanMemberId: AGENT_TEAM_HUMAN_MEMBER_ID, items: [], recent: [], hasMore: false, totalUnreadCount: 0, totalDirectCount: 0 })
 
     // Project enrolment is retired — membership is derived from participation
     // — so a Workspace participant with no Projects at all is reachable by
     // mention, and that mention is what lights the delivery chain.
-    const after = await ctx.agentTeam.sendMessage({ asTask: true, requestId: requestId('post-join'), workspaceId, projectRef: project.project.projectRef, body: 'Pinged without joining', recipients: [bare.status.member.memberId] })
+    const after = await ctx.agentTeam.startThread({ kind: 'task', requestId: requestId('post-join'), workspaceId, projectRef: project.project.projectRef, body: 'Pinged without joining', recipients: [bare.status.member.memberId] })
     expect(after.kind).toBe('committed')
     if (after.kind !== 'committed') throw new Error(`expected committed mention, received ${after.kind}`)
     expect(ctx.agentTeam.inboxForAgent(agent, { workspaceId })).toMatchObject({ totalUnreadCount: 1, totalDirectCount: 1,
@@ -978,7 +972,7 @@ describe('Agent Team Member lifecycle', () => {
     }
 
     const discovered = await call('team_view', {})
-    expect(discovered.projects).toEqual([{ projectRef: project.project.projectRef, name: 'engineering' }])
+    expect(discovered.projects).toEqual([{ projectRef: project.project.projectRef, name: 'engineering', role: 'member', owners: ['human'] }])
     expect(discovered.members).toEqual(expect.arrayContaining([
       expect.objectContaining({ kind: 'human' }),
       expect.objectContaining({ memberId: builder.status.member.memberId, handle: 'builder' }),
@@ -992,6 +986,7 @@ describe('Agent Team Member lifecycle', () => {
     // mentioned can discover prior discussions and address them by ref (issue #2).
     const beforeThreads = await call('team_view', {})
     expect(beforeThreads.threads).toEqual([])
+    await ctx.agentTeam.addProjectOwner({ requestId: requestId('protocol-owner'), workspaceId, projectRef: project.project.projectRef, memberId: builder.status.member.memberId })
     const plainStart = await call('team_message', { action: 'start', projectRef: project.project.projectRef, body: 'Agent-led taskless discussion' })
     expect(plainStart).toMatchObject({ kind: 'committed' })
     const taskfulStart = await call('team_message', { action: 'start', kind: 'task', projectRef: project.project.projectRef, body: 'Agent-led task with work' })
@@ -1019,7 +1014,7 @@ describe('Agent Team Member lifecycle', () => {
     expect(lateJoinerView.threads.map((thread: { threadRef: string }) => thread.threadRef)).toEqual(expect.arrayContaining([plainStart.threadRef, taskfulStart.threadRef]))
     // Threads in a Project the Member has not joined stay invisible.
     const privateProject = await ctx.agentTeam.createProject({ requestId: requestId('protocol-private'), workspaceId, name: 'private', description: 'Unjoined' })
-    const privateStart = await ctx.agentTeam.sendMessage({ requestId: requestId('protocol-private-start'), workspaceId, projectRef: privateProject.project.projectRef, body: 'Taskless discussion outside membership' })
+    const privateStart = await ctx.agentTeam.startThread({ kind: 'discussion', requestId: requestId('protocol-private-start'), workspaceId, projectRef: privateProject.project.projectRef, body: 'Taskless discussion outside membership' })
     expect(privateStart).toMatchObject({ kind: 'committed' })
     const privateThreadRef = (privateStart as { thread: { threadRef: string } }).thread.threadRef
     const afterPrivate = await call('team_view', {})
@@ -1062,15 +1057,14 @@ describe('Agent Team Member lifecycle', () => {
     expect(reviewerInbox).toMatchObject({ totalDirectCount: 1,
       items: [expect.objectContaining({ thread: expect.objectContaining({ threadRef: enrolledThreadRef }), directCount: 1 })] })
     expect(reviewerInbox.items[0]!.task).toBeUndefined()
-    expect(ctx.agentTeam.attentionStatusForAgent(reviewerAgent, { workspaceId, threadRef: enrolledThreadRef as never }).attention).toBeDefined()
+    // Being named delivers a notice; following the Thread stays the Member's own choice.
+    expect(ctx.agentTeam.attentionStatusForAgent(reviewerAgent, { workspaceId, threadRef: enrolledThreadRef as never }).attention).toBeUndefined()
 
-    const started = await ctx.agentTeam.sendMessage({ asTask: true, requestId: requestId('protocol-task'), workspaceId, projectRef: project.project.projectRef, body: 'Investigate the pull protocol' })
+    const started = await ctx.agentTeam.startThread({ kind: 'task', requestId: requestId('protocol-task'), workspaceId, projectRef: project.project.projectRef, body: 'Investigate the pull protocol' })
     if (started.kind !== 'committed') throw new Error(`expected committed start, received ${started.kind}`)
     const background = await ctx.agentTeam.reply({ requestId: requestId('protocol-background'), workspaceId, taskRef: started.task!.taskRef, body: 'Older context', baseRevision: started.thread.revision })
     if (background.kind !== 'committed') throw new Error(`expected committed background, received ${background.kind}`)
-    const held = await ctx.agentTeam.reply({ requestId: requestId('protocol-invite'), workspaceId, taskRef: started.task!.taskRef, body: 'Builder, please investigate', baseRevision: background.thread.revision, recipients: [builder.status.member.memberId] })
-    if (held.kind !== 'confirmation_required') throw new Error(`expected confirmation, received ${held.kind}`)
-    const invitation = await ctx.agentTeam.reply({ requestId: requestId('protocol-invite-confirmed'), workspaceId, taskRef: started.task!.taskRef, body: 'Builder, please investigate', baseRevision: background.thread.revision, recipients: [builder.status.member.memberId], confirmationToken: held.confirmationToken })
+    const invitation = await ctx.agentTeam.reply({ requestId: requestId('protocol-invite'), workspaceId, taskRef: started.task!.taskRef, body: 'Builder, please investigate', baseRevision: background.thread.revision, recipients: [builder.status.member.memberId] })
     if (invitation.kind !== 'committed') throw new Error(`expected committed invitation, received ${invitation.kind}`)
 
     const inbox = await call('team_inbox', {})
@@ -1079,14 +1073,15 @@ describe('Agent Team Member lifecycle', () => {
 
     const firstRead = await call('team_thread', { action: 'read', taskRef: started.task!.taskRef })
     expect(firstRead).toMatchObject({
-      kind: 'read', taskRef: started.task!.taskRef, status: 'todo', resolution: 'open', following: true,
+      kind: 'read', taskRef: started.task!.taskRef, status: 'todo', resolution: 'open', following: false,
       anchor: { body: 'Investigate the pull protocol' }, claims: [],
     })
     expect(firstRead.facts).toEqual(expect.arrayContaining([
-      expect.objectContaining({ body: 'Older context', unread: false }),
       expect.objectContaining({ body: 'Builder, please investigate', unread: true, direct: true }),
     ]))
 
+    // A mention delivers a notice; the Member follows the Thread by choosing to.
+    expect(await call('team_attention', { action: 'follow', taskRef: started.task!.taskRef })).toMatchObject({ kind: 'follow', following: true })
     const update = await ctx.agentTeam.reply({ requestId: requestId('protocol-update'), workspaceId, taskRef: started.task!.taskRef, body: 'New evidence', baseRevision: invitation.thread.revision })
     if (update.kind !== 'committed') throw new Error(`expected committed update, received ${update.kind}`)
     expect(await call('team_message', { action: 'reply', taskRef: started.task!.taskRef, body: 'Premature reply', baseRevision: invitation.thread.revision }))
@@ -1097,15 +1092,12 @@ describe('Agent Team Member lifecycle', () => {
     const reply = await call('team_message', { action: 'reply', taskRef: started.task!.taskRef, body: 'Current reply', baseRevision: update.thread.revision })
     expect(reply).toMatchObject({ kind: 'committed', taskRef: started.task!.taskRef })
 
-    // A reply naming an Agent who has never taken part in this Thread commits:
-    // a text mention never fails the write, nothing reaches that Agent, and
-    // the result reports the undelivered name — inviting a Member into an
-    // existing Thread stays a Human decision. Asserted at execute/result level,
-    // not only through a hand-written render fixture.
+    // A reply naming a Project Member who has never taken part in this Thread
+    // delivers a notice to them without making them follow it.
     const dropped = await call('team_message', { action: 'reply', taskRef: started.task!.taskRef, body: '@reviewer, please look', baseRevision: reply.revision })
-    expect(dropped).toMatchObject({ kind: 'committed', taskRef: started.task!.taskRef, threadRef: started.thread.threadRef,
-      undeliveredMentions: [reviewer.status.member.memberId] })
-    expect(ctx.agentTeam.inboxForAgent(reviewerAgent, { workspaceId }).items.map(item => item.thread.threadRef)).toEqual([enrolledThreadRef])
+    expect(dropped).toMatchObject({ kind: 'committed', taskRef: started.task!.taskRef, threadRef: started.thread.threadRef })
+    expect(dropped.undeliveredMentions).toBeUndefined()
+    expect(ctx.agentTeam.inboxForAgent(reviewerAgent, { workspaceId }).items.map(item => item.thread.threadRef).sort()).toEqual([enrolledThreadRef, started.thread.threadRef].sort())
 
     expect(await call('team_attention', { action: 'unfollow', taskRef: started.task!.taskRef })).toMatchObject({ following: false })
     const claim = await call('team_claim', { action: 'claim', taskRef: started.task!.taskRef, direction: 'implementation', baseRevision: dropped.revision })
@@ -1252,7 +1244,7 @@ describe('Agent Team Member lifecycle', () => {
     const project = await ctx.agentTeam.createProject({ requestId: requestId('clock-project'), workspaceId, name: 'engineering', description: 'Engineering work' })
     const builder = await ctx.agentTeam.addMember({ requestId: requestId('clock-builder'), workspaceId, handle: 'builder', description: 'Builds changes', presetId: 'team-member', projectRefs: [project.project.projectRef] })
     const agent = ctx.agents.get(builder.status.member.sessionId)!
-    const started = await ctx.agentTeam.sendMessage({ asTask: true, requestId: requestId('clock-start'), workspaceId, projectRef: project.project.projectRef,
+    const started = await ctx.agentTeam.startThread({ kind: 'task', requestId: requestId('clock-start'), workspaceId, projectRef: project.project.projectRef,
       body: 'Drive the clock', recipients: [builder.status.member.memberId] })
     if (started.kind !== 'committed') throw new Error(`expected committed start, received ${started.kind}`)
 
@@ -1298,7 +1290,7 @@ describe('Agent Team Member lifecycle', () => {
     const project = await ctx.agentTeam.createProject({ requestId: requestId('loop-project'), workspaceId, name: 'engineering', description: 'Engineering work' })
     const builder = await ctx.agentTeam.addMember({ requestId: requestId('loop-builder'), workspaceId, handle: 'builder', description: 'Builds changes', presetId: 'team-member', projectRefs: [project.project.projectRef] })
     const agent = ctx.agents.get(builder.status.member.sessionId)!
-    const started = await ctx.agentTeam.sendMessage({ asTask: true, requestId: requestId('loop-start'), workspaceId, projectRef: project.project.projectRef, body: 'Investigate the rejection flow' })
+    const started = await ctx.agentTeam.startThread({ kind: 'task', requestId: requestId('loop-start'), workspaceId, projectRef: project.project.projectRef, body: 'Investigate the rejection flow' })
     if (started.kind !== 'committed') throw new Error(`expected committed start, received ${started.kind}`)
     await ctx.agentTeam.changeAttentionForAgent(agent, { requestId: requestId('loop-follow'), workspaceId,
       taskRef: started.task!.taskRef, action: 'follow' })
@@ -1334,7 +1326,7 @@ describe('Agent Team Member lifecycle', () => {
     const project = await ctx.agentTeam.createProject({ requestId: requestId('safe-project'), workspaceId, name: 'engineering', description: 'Engineering work' })
     const builder = await ctx.agentTeam.addMember({ requestId: requestId('safe-builder'), workspaceId, handle: 'builder', description: 'Builds changes', presetId: 'team-member', projectRefs: [project.project.projectRef] })
     const agent = ctx.agents.get(builder.status.member.sessionId)!
-    const started = await ctx.agentTeam.sendMessage({ asTask: true, requestId: requestId('safe-task'), workspaceId, projectRef: project.project.projectRef, body: 'Investigate safe delivery' })
+    const started = await ctx.agentTeam.startThread({ kind: 'task', requestId: requestId('safe-task'), workspaceId, projectRef: project.project.projectRef, body: 'Investigate safe delivery' })
     if (started.kind !== 'committed') throw new Error(`expected committed start, received ${started.kind}`)
     await ctx.agentTeam.changeAttentionForAgent(agent, { requestId: requestId('safe-follow'), workspaceId, taskRef: started.task!.taskRef, action: 'follow' })
     let revision = (await ctx.agentTeam.readThread({ requestId: requestId('safe-human-read'), workspaceId, taskRef: started.task!.taskRef })).thread.revision
@@ -1369,7 +1361,7 @@ describe('Agent Team Member lifecycle', () => {
     const project = await ctx.agentTeam.createProject({ requestId: requestId('top-level-wake-project'), workspaceId, name: 'engineering', description: 'Engineering work' })
     const builder = await ctx.agentTeam.addMember({ requestId: requestId('top-level-wake-builder'), workspaceId, handle: 'builder', description: 'Builds changes', presetId: 'team-member', projectRefs: [project.project.projectRef] })
     const agent = ctx.agents.get(builder.status.member.sessionId)!
-    const committed = await ctx.agentTeam.sendMessage({ asTask: true, requestId: requestId('top-level-wake'), workspaceId, projectRef: project.project.projectRef,
+    const committed = await ctx.agentTeam.startThread({ kind: 'task', requestId: requestId('top-level-wake'), workspaceId, projectRef: project.project.projectRef,
       body: 'Please investigate the top-level wake path', recipients: [builder.status.member.memberId] })
     expect(committed.kind).toBe('committed')
     expect(adapter.requests).toHaveLength(0)
@@ -1391,13 +1383,16 @@ describe('Agent Team Member lifecycle', () => {
     expect(request).toMatch(/Occurred at: \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\+08:00/)
   })
 
-  it('delivers an agent-created top-level mention to the mentioned Member', async () => {
+  it('delivers a mention in an owner-started Thread to the mentioned Member', async () => {
     const adapter = new ScriptedAdapter()
     const { ctx, workspaceId } = await realHarness(adapter)
     const project = await ctx.agentTeam.createProject({ requestId: requestId('peer-project'), workspaceId, name: 'engineering', description: 'Engineering work' })
     const starter = await ctx.agentTeam.addMember({ requestId: requestId('peer-starter'), workspaceId, handle: 'starter', description: 'Starts work', presetId: 'team-member', projectRefs: [project.project.projectRef] })
     const peer = await ctx.agentTeam.addMember({ requestId: requestId('peer-peer'), workspaceId, handle: 'peer', description: 'Peers in', presetId: 'team-member', projectRefs: [project.project.projectRef] })
     const starterAgent = ctx.agents.get(starter.status.member.sessionId)!
+    adapter.enqueue(textResponse('Noted my new ownership.'))
+    await ctx.agentTeam.addProjectOwner({ requestId: requestId('peer-owner'), workspaceId, projectRef: project.project.projectRef, memberId: starter.status.member.memberId })
+    await starterAgent.whenIdle()
     const peerAgent = ctx.agents.get(peer.status.member.sessionId)!
     let callNumber = 0
     const call = async (name: string, args: unknown) => {
@@ -1417,8 +1412,8 @@ describe('Agent Team Member lifecycle', () => {
 
     adapter.enqueue(textResponse('I will verify the export path.'))
     await peerAgent.whenIdle()
-    expect(adapter.requests).toHaveLength(1)
-    const request = JSON.stringify(adapter.requests[0]!.messages)
+    expect(adapter.requests).toHaveLength(2)
+    const request = JSON.stringify(adapter.requests[1]!.messages)
     expect(request).toContain('Direct Team mention')
     expect(request).toContain('@peer please verify the export path')
     expect(request).toContain('starter')
@@ -1434,7 +1429,7 @@ describe('Agent Team Member lifecycle', () => {
     const project = await ctx.agentTeam.createProject({ requestId: requestId('reply-window-project'), workspaceId, name: 'engineering', description: 'Engineering work' })
     const builder = await ctx.agentTeam.addMember({ requestId: requestId('reply-window-builder'), workspaceId, handle: 'builder', description: 'Builds changes', presetId: 'team-member', projectRefs: [project.project.projectRef] })
     const agent = ctx.agents.get(builder.status.member.sessionId)!
-    const anchor = await ctx.agentTeam.sendMessage({ asTask: true, requestId: requestId('reply-window-anchor'), workspaceId,
+    const anchor = await ctx.agentTeam.startThread({ kind: 'task', requestId: requestId('reply-window-anchor'), workspaceId,
       projectRef: project.project.projectRef, body: 'Please investigate the anchored path', recipients: [builder.status.member.memberId] })
     if (anchor.kind !== 'committed') throw new Error('expected committed anchor')
 
@@ -1482,7 +1477,7 @@ describe('Agent Team Member lifecycle', () => {
     const builder = await ctx.agentTeam.addMember({ requestId: requestId('replies-to-builder'), workspaceId, handle: 'builder', description: 'Builds changes', presetId: 'team-member', projectRefs: [project.project.projectRef] })
     const agent = ctx.agents.get(builder.status.member.sessionId)!
     // The anchor mentions nobody, so the only wake below is the reply's.
-    const anchor = await ctx.agentTeam.sendMessage({ asTask: true, requestId: requestId('replies-to-anchor'), workspaceId,
+    const anchor = await ctx.agentTeam.startThread({ kind: 'task', requestId: requestId('replies-to-anchor'), workspaceId,
       projectRef: project.project.projectRef, body: 'Please investigate the anchored path' })
     if (anchor.kind !== 'committed') throw new Error('expected committed anchor')
     // Following first: a Human reply naming a Member who is not yet following
@@ -1519,7 +1514,7 @@ describe('Agent Team Member lifecycle', () => {
     const started = []
     for (let index = 1; index <= 5; index++) {
       const body = `${`x${index}`.repeat(4_500)}\nDIRECT-END-${index}`
-      const result = await ctx.agentTeam.sendMessage({ asTask: true, requestId: requestId(`bounded-direct-${index}`), workspaceId,
+      const result = await ctx.agentTeam.startThread({ kind: 'task', requestId: requestId(`bounded-direct-${index}`), workspaceId,
         projectRef: project.project.projectRef, body, recipients: [builder.status.member.memberId] })
       if (result.kind !== 'committed') throw new Error(`expected committed direct Message, received ${result.kind}`)
       started.push(result)
@@ -1546,7 +1541,7 @@ describe('Agent Team Member lifecycle', () => {
     const project = await ctx.agentTeam.createProject({ requestId: requestId('task-update-project'), workspaceId, name: 'engineering', description: 'Engineering work' })
     const builder = await ctx.agentTeam.addMember({ requestId: requestId('task-update-builder'), workspaceId, handle: 'builder', description: 'Builds changes', presetId: 'team-member', projectRefs: [project.project.projectRef] })
     const agent = ctx.agents.get(builder.status.member.sessionId)!
-    const started = await ctx.agentTeam.sendMessage({ asTask: true, requestId: requestId('task-update-start'), workspaceId,
+    const started = await ctx.agentTeam.startThread({ kind: 'task', requestId: requestId('task-update-start'), workspaceId,
       projectRef: project.project.projectRef, body: 'Prepare a close notification test' })
     if (started.kind !== 'committed') throw new Error(`expected committed start, received ${started.kind}`)
     await ctx.agentTeam.changeAttentionForAgent(agent, { requestId: requestId('task-update-follow'), workspaceId,
@@ -1582,7 +1577,7 @@ describe('Agent Team Member lifecycle', () => {
     const project = await ctx.agentTeam.createProject({ requestId: requestId('wake-project'), workspaceId, name: 'engineering', description: 'Engineering work' })
     const builder = await ctx.agentTeam.addMember({ requestId: requestId('wake-builder'), workspaceId, handle: 'builder', description: 'Builds changes', presetId: 'team-member', projectRefs: [project.project.projectRef] })
     const agent = ctx.agents.get(builder.status.member.sessionId)!
-    const started = await ctx.agentTeam.sendMessage({ asTask: true, requestId: requestId('wake-task'), workspaceId, projectRef: project.project.projectRef, body: 'Investigate the wake path' })
+    const started = await ctx.agentTeam.startThread({ kind: 'task', requestId: requestId('wake-task'), workspaceId, projectRef: project.project.projectRef, body: 'Investigate the wake path' })
     if (started.kind !== 'committed') throw new Error(`expected committed start, received ${started.kind}`)
     await ctx.agentTeam.changeAttentionForAgent(agent, { requestId: requestId('wake-follow'), workspaceId, taskRef: started.task!.taskRef, action: 'follow' })
     const humanRead = await ctx.agentTeam.readThread({ requestId: requestId('wake-human-read'), workspaceId, taskRef: started.task!.taskRef })
@@ -1608,7 +1603,7 @@ describe('Agent Team Member lifecycle', () => {
     const project = await ctx.agentTeam.createProject({ requestId: requestId('resume-project'), workspaceId, name: 'engineering', description: 'Engineering work' })
     const builder = await ctx.agentTeam.addMember({ requestId: requestId('resume-builder'), workspaceId, handle: 'builder', description: 'Builds changes', presetId: 'team-member', projectRefs: [project.project.projectRef] })
     const agent = ctx.agents.get(builder.status.member.sessionId)!
-    const started = await ctx.agentTeam.sendMessage({ asTask: true, requestId: requestId('resume-task'), workspaceId, projectRef: project.project.projectRef, body: 'Investigate resume recovery' })
+    const started = await ctx.agentTeam.startThread({ kind: 'task', requestId: requestId('resume-task'), workspaceId, projectRef: project.project.projectRef, body: 'Investigate resume recovery' })
     if (started.kind !== 'committed') throw new Error(`expected committed start, received ${started.kind}`)
     await ctx.agentTeam.changeAttentionForAgent(agent, { requestId: requestId('resume-follow'), workspaceId, taskRef: started.task!.taskRef, action: 'follow' })
     const humanRead = await ctx.agentTeam.readThread({ requestId: requestId('resume-human-read'), workspaceId, taskRef: started.task!.taskRef })
@@ -1634,7 +1629,7 @@ describe('Agent Team Member lifecycle', () => {
       const project = await ctx.agentTeam.createProject({ requestId: requestId('automatic-recovery-project'), workspaceId, name: 'engineering', description: 'Engineering work' })
       const builder = await ctx.agentTeam.addMember({ requestId: requestId('automatic-recovery-builder'), workspaceId, handle: 'builder', description: 'Builds changes', presetId: 'team-member', projectRefs: [project.project.projectRef] })
       const agent = ctx.agents.get(builder.status.member.sessionId)!
-      const started = await ctx.agentTeam.sendMessage({ asTask: true, requestId: requestId('automatic-recovery-task'), workspaceId, projectRef: project.project.projectRef, body: 'Investigate automatic recovery' })
+      const started = await ctx.agentTeam.startThread({ kind: 'task', requestId: requestId('automatic-recovery-task'), workspaceId, projectRef: project.project.projectRef, body: 'Investigate automatic recovery' })
       if (started.kind !== 'committed') throw new Error(`expected committed start, received ${started.kind}`)
       await ctx.agentTeam.changeAttentionForAgent(agent, { requestId: requestId('automatic-recovery-follow'), workspaceId, taskRef: started.task!.taskRef, action: 'follow' })
       const humanRead = await ctx.agentTeam.readThread({ requestId: requestId('automatic-recovery-read'), workspaceId, taskRef: started.task!.taskRef })
@@ -1779,7 +1774,7 @@ describe('Agent Team Member lifecycle', () => {
       const project = await ctx.agentTeam.createProject({ requestId: requestId('manual-recovery-project'), workspaceId, name: 'engineering', description: 'Engineering work' })
       const builder = await ctx.agentTeam.addMember({ requestId: requestId('manual-recovery-builder'), workspaceId, handle: 'builder', description: 'Builds changes', presetId: 'team-member', projectRefs: [project.project.projectRef] })
       const agent = ctx.agents.get(builder.status.member.sessionId)!
-      const started = await ctx.agentTeam.sendMessage({ asTask: true, requestId: requestId('manual-recovery-task'), workspaceId, projectRef: project.project.projectRef, body: 'Investigate manual recovery' })
+      const started = await ctx.agentTeam.startThread({ kind: 'task', requestId: requestId('manual-recovery-task'), workspaceId, projectRef: project.project.projectRef, body: 'Investigate manual recovery' })
       if (started.kind !== 'committed') throw new Error(`expected committed start, received ${started.kind}`)
       await ctx.agentTeam.changeAttentionForAgent(agent, { requestId: requestId('manual-recovery-follow'), workspaceId, taskRef: started.task!.taskRef, action: 'follow' })
       const humanRead = await ctx.agentTeam.readThread({ requestId: requestId('manual-recovery-read'), workspaceId, taskRef: started.task!.taskRef })
@@ -1823,7 +1818,7 @@ describe('Agent Team Member lifecycle', () => {
     const project = await ctx.agentTeam.createProject({ requestId: requestId('error-project'), workspaceId, name: 'engineering', description: 'Engineering work' })
     const builder = await ctx.agentTeam.addMember({ requestId: requestId('error-builder'), workspaceId, handle: 'builder', description: 'Builds changes', presetId: 'team-member', projectRefs: [project.project.projectRef] })
     const agent = ctx.agents.get(builder.status.member.sessionId)!
-    const started = await ctx.agentTeam.sendMessage({ asTask: true, requestId: requestId('error-task'), workspaceId, projectRef: project.project.projectRef, body: 'Investigate error recovery' })
+    const started = await ctx.agentTeam.startThread({ kind: 'task', requestId: requestId('error-task'), workspaceId, projectRef: project.project.projectRef, body: 'Investigate error recovery' })
     if (started.kind !== 'committed') throw new Error(`expected committed start, received ${started.kind}`)
     await ctx.agentTeam.changeAttentionForAgent(agent, { requestId: requestId('error-follow'), workspaceId, taskRef: started.task!.taskRef, action: 'follow' })
     const humanRead = await ctx.agentTeam.readThread({ requestId: requestId('error-human-read'), workspaceId, taskRef: started.task!.taskRef })
@@ -1846,7 +1841,7 @@ describe('Agent Team Member lifecycle', () => {
     const project = await ctx.agentTeam.createProject({ requestId: requestId('remount-project'), workspaceId, name: 'engineering', description: 'Engineering work' })
     const builder = await ctx.agentTeam.addMember({ requestId: requestId('remount-builder'), workspaceId, handle: 'builder', description: 'Builds changes', presetId: 'team-member', projectRefs: [project.project.projectRef] })
     const agent = ctx.agents.get(builder.status.member.sessionId)!
-    const started = await ctx.agentTeam.sendMessage({ asTask: true, requestId: requestId('remount-task'), workspaceId, projectRef: project.project.projectRef, body: 'Investigate remount recovery' })
+    const started = await ctx.agentTeam.startThread({ kind: 'task', requestId: requestId('remount-task'), workspaceId, projectRef: project.project.projectRef, body: 'Investigate remount recovery' })
     if (started.kind !== 'committed') throw new Error(`expected committed start, received ${started.kind}`)
     await ctx.agentTeam.changeAttentionForAgent(agent, { requestId: requestId('remount-follow'), workspaceId, taskRef: started.task!.taskRef, action: 'follow' })
     const humanRead = await ctx.agentTeam.readThread({ requestId: requestId('remount-human-read'), workspaceId, taskRef: started.task!.taskRef })
@@ -2011,7 +2006,7 @@ describe('Agent Team Member lifecycle: context, acceptance, and activation (tick
       const added = await ctx.agentTeam.addMember({ requestId: requestId('noauto-add'), workspaceId, handle: 'builder', description: 'Builds the implementation', presetId: 'team-member', projectRefs: [project.project.projectRef] })
       const memberId = added.status.member.memberId
       pressureState.usageTokens = 0
-      const started = await ctx.agentTeam.sendMessage({ asTask: true, requestId: requestId('noauto-task'), workspaceId, projectRef: project.project.projectRef, body: 'Investigate the release', recipients: [memberId] })
+      const started = await ctx.agentTeam.startThread({ kind: 'task', requestId: requestId('noauto-task'), workspaceId, projectRef: project.project.projectRef, body: 'Investigate the release', recipients: [memberId] })
       if (started.kind !== 'committed') throw new Error(`expected committed start, received ${started.kind}`)
       const live = ctx.agents.get(added.status.member.sessionId)!
       await waitForIdle(ctx, live)
@@ -2041,7 +2036,7 @@ describe('Agent Team Member lifecycle: context, acceptance, and activation (tick
       const added = await ctx.agentTeam.addMember({ requestId: requestId('budget-add'), workspaceId, handle: 'builder', description: 'Builds the implementation', presetId: 'team-member', projectRefs: [project.project.projectRef] })
       const memberId = added.status.member.memberId
       pressureState.usageTokens = 0
-      const started = await ctx.agentTeam.sendMessage({ asTask: true, requestId: requestId('budget-task'), workspaceId, projectRef: project.project.projectRef, body: 'Investigate the release', recipients: [memberId] })
+      const started = await ctx.agentTeam.startThread({ kind: 'task', requestId: requestId('budget-task'), workspaceId, projectRef: project.project.projectRef, body: 'Investigate the release', recipients: [memberId] })
       if (started.kind !== 'committed') throw new Error(`expected committed start, received ${started.kind}`)
       const live = ctx.agents.get(added.status.member.sessionId)!
       await waitForIdle(ctx, live)
@@ -2080,9 +2075,10 @@ describe('Agent Team Member lifecycle: context, acceptance, and activation (tick
       const builder = await ctx.agentTeam.addMember({ requestId: requestId('bystander-builder'), workspaceId, handle: 'builder', description: 'Builds changes', presetId: 'team-member', projectRefs: [project.project.projectRef] })
       const watcher = await ctx.agentTeam.addMember({ requestId: requestId('bystander-watcher'), workspaceId, handle: 'watcher', description: 'Watches the work', presetId: 'team-member', projectRefs: [project.project.projectRef] })
       pressureState.usageTokens = 0
-      // Both are recipients, so both follow the Thread: the difference under
-      // test is that only the builder ever claimed work on it.
-      const started = await ctx.agentTeam.sendMessage({ asTask: true, requestId: requestId('bystander-task'), workspaceId, projectRef: project.project.projectRef, body: 'Investigate the release', recipients: [builder.status.member.memberId, watcher.status.member.memberId] })
+      // Both are recipients and both end up following the Thread (the builder by
+      // claiming, the watcher explicitly): the difference under test is that only
+      // the builder ever claimed work on it.
+      const started = await ctx.agentTeam.startThread({ kind: 'task', requestId: requestId('bystander-task'), workspaceId, projectRef: project.project.projectRef, body: 'Investigate the release', recipients: [builder.status.member.memberId, watcher.status.member.memberId] })
       if (started.kind !== 'committed') throw new Error(`expected committed start, received ${started.kind}`)
       const builderAgent = ctx.agents.get(builder.status.member.sessionId)!
       const watcherAgent = ctx.agents.get(watcher.status.member.sessionId)!
@@ -2092,6 +2088,7 @@ describe('Agent Team Member lifecycle: context, acceptance, and activation (tick
       // The watcher follows the Thread but stays behind the accept, so the
       // accept reaches it as ordinary unread rather than as a mention.
       await ctx.agentTeam.readThreadForAgent(watcherAgent, { requestId: requestId('bystander-watcher-read'), workspaceId, taskRef: started.task!.taskRef })
+      await ctx.agentTeam.changeAttentionForAgent(watcherAgent, { requestId: requestId('bystander-watcher-follow'), workspaceId, taskRef: started.task!.taskRef, action: 'follow' })
       const claim = await ctx.agentTeam.changeClaimForAgent(builderAgent, { requestId: requestId('bystander-claim'), workspaceId, taskRef: started.task!.taskRef, action: 'claim', baseRevision: builderRead.thread.revision, direction: 'own the fix' })
       if (claim.kind !== 'committed') throw new Error(`expected committed claim, received ${claim.kind}`)
       await waitForIdle(ctx, builderAgent)
@@ -2190,7 +2187,7 @@ describe('Agent Team Member lifecycle: context, acceptance, and activation (tick
       const project = await ctx.agentTeam.createProject({ requestId: requestId('notify-project'), workspaceId, name: 'engineering', description: 'Engineering work' })
       const builder = await ctx.agentTeam.addMember({ requestId: requestId('notify-builder'), workspaceId, handle: 'builder', description: 'Builds changes', presetId: 'team-member', projectRefs: [project.project.projectRef] })
       const reviewer = await ctx.agentTeam.addMember({ requestId: requestId('notify-reviewer'), workspaceId, handle: 'reviewer', description: 'Reviews changes', presetId: 'team-member', projectRefs: [project.project.projectRef] })
-      const started = await ctx.agentTeam.sendMessage({ asTask: true, requestId: requestId('notify-task'), workspaceId, projectRef: project.project.projectRef, body: 'Ship both semantics', recipients: [builder.status.member.memberId, reviewer.status.member.memberId] })
+      const started = await ctx.agentTeam.startThread({ kind: 'task', requestId: requestId('notify-task'), workspaceId, projectRef: project.project.projectRef, body: 'Ship both semantics', recipients: [builder.status.member.memberId, reviewer.status.member.memberId] })
       if (started.kind !== 'committed') throw new Error(`expected committed start, received ${started.kind}`)
       const builderAgent = ctx.agents.get(builder.status.member.sessionId)!
       const reviewerAgent = ctx.agents.get(reviewer.status.member.sessionId)!
@@ -2282,7 +2279,7 @@ describe('Agent Team Member lifecycle: context, acceptance, and activation (tick
       const { ctx, workspaceId } = await realHarness(adapter)
       const project = await ctx.agentTeam.createProject({ requestId: requestId('emptyclause-project'), workspaceId, name: 'engineering', description: 'Engineering work' })
       const builder = await ctx.agentTeam.addMember({ requestId: requestId('emptyclause-add'), workspaceId, handle: 'builder', description: 'Builds changes', presetId: 'team-member', projectRefs: [project.project.projectRef] })
-      const started = await ctx.agentTeam.sendMessage({ asTask: true, requestId: requestId('emptyclause-task'), workspaceId, projectRef: project.project.projectRef, body: 'Ship the early accept', recipients: [builder.status.member.memberId] })
+      const started = await ctx.agentTeam.startThread({ kind: 'task', requestId: requestId('emptyclause-task'), workspaceId, projectRef: project.project.projectRef, body: 'Ship the early accept', recipients: [builder.status.member.memberId] })
       if (started.kind !== 'committed') throw new Error(`expected committed start, received ${started.kind}`)
       const builderAgent = ctx.agents.get(builder.status.member.sessionId)!
       adapter.enqueue(textResponse('builder saw the task.'))
@@ -2694,7 +2691,7 @@ describe('Agent Team change version domains', () => {
     const project = await ctx.agentTeam.createProject({ requestId: requestId('domain-project'), workspaceId, name: 'engineering', description: 'Version domains' })
     const added = await ctx.agentTeam.addMember({ requestId: requestId('domain-add'), workspaceId, handle: 'builder', description: 'Reads work', presetId: 'team-member', projectRefs: [project.project.projectRef] })
     const live = ctx.agents.get(added.status.member.sessionId)!
-    const started = await ctx.agentTeam.sendMessage({ asTask: true, requestId: requestId('domain-task'), workspaceId, projectRef: project.project.projectRef, body: 'Unread work', recipients: [added.status.member.memberId] })
+    const started = await ctx.agentTeam.startThread({ kind: 'task', requestId: requestId('domain-task'), workspaceId, projectRef: project.project.projectRef, body: 'Unread work', recipients: [added.status.member.memberId] })
     if (started.kind !== 'committed') throw new Error(`expected committed start, received ${started.kind}`)
 
     const baseline = (await changeBaseline(ctx.agentTeam)).version
@@ -3115,7 +3112,7 @@ describe('Agent Team wake-slot generation swap (ticket 05)', () => {
       const projectRef = ctx.agentTeam.view({ workspaceId }).projects[0]!.projectRef
 
       adapter.enqueue(textResponse('Read the waking message in the fresh context.'))
-      const sent = await ctx.agentTeam.sendMessage({ asTask: false, requestId: requestId('wake-message'), workspaceId,
+      const sent = await ctx.agentTeam.startThread({ kind: 'discussion', requestId: requestId('wake-message'), workspaceId,
         projectRef, body: 'Please pick this up now', recipients: [memberId] })
       expect(sent.kind).toBe('committed')
 
@@ -3167,7 +3164,7 @@ describe('Agent Team wake-slot generation swap (ticket 05)', () => {
       // step), so the assertion names the wake decision alone.
       const price = vi.spyOn(ctx.agentTeam as never as { measureLiveContext: (agent: unknown) => unknown }, 'measureLiveContext')
       adapter.enqueue(textResponse('Continuing in the same context.'))
-      const sent = await ctx.agentTeam.sendMessage({ asTask: false, requestId: requestId('warm-message'), workspaceId,
+      const sent = await ctx.agentTeam.startThread({ kind: 'discussion', requestId: requestId('warm-message'), workspaceId,
         projectRef, body: 'Continue please', recipients: [memberId] })
       expect(sent.kind).toBe('committed')
       await agent.whenIdle()
@@ -3191,7 +3188,7 @@ describe('Agent Team wake-slot generation swap (ticket 05)', () => {
       const agent = ctx.agents.get(sessionId)!
 
       adapter.enqueue(textResponse('Continuing in the same context.'))
-      await ctx.agentTeam.sendMessage({ asTask: false, requestId: requestId('small-message'), workspaceId,
+      await ctx.agentTeam.startThread({ kind: 'discussion', requestId: requestId('small-message'), workspaceId,
         projectRef, body: 'Continue please', recipients: [memberId] })
       await agent.whenIdle()
 
@@ -3225,7 +3222,7 @@ describe('Agent Team wake-slot swap safety (ticket 05)', () => {
       await vi.advanceTimersByTimeAsync(61 * 60_000)
 
       adapter.enqueue(textResponse('Answering the queued question.'))
-      const sent = await ctx.agentTeam.sendMessage({ asTask: false, requestId: requestId('queued-message'), workspaceId,
+      const sent = await ctx.agentTeam.startThread({ kind: 'discussion', requestId: requestId('queued-message'), workspaceId,
         projectRef: project.project.projectRef, body: 'Please pick this up now', recipients: [memberId] })
       expect(sent.kind).toBe('committed')
       await vi.waitFor(() => {
@@ -3265,7 +3262,7 @@ describe('Agent Team wake-slot swap safety (ticket 05)', () => {
       // The swap commits, then its activation fails: the durable binding has
       // moved while no live generation runs it.
       presets.failingMount = true
-      const sent = await ctx.agentTeam.sendMessage({ asTask: false, requestId: requestId('post-commit-message'), workspaceId,
+      const sent = await ctx.agentTeam.startThread({ kind: 'discussion', requestId: requestId('post-commit-message'), workspaceId,
         projectRef: project.project.projectRef, body: 'Please pick this up now', recipients: [memberId] })
       expect(sent.kind).toBe('committed')
       const stranded = await vi.waitFor(() => {
@@ -3283,7 +3280,7 @@ describe('Agent Team wake-slot swap safety (ticket 05)', () => {
       presets.failingMount = false
       adapter.enqueue(textResponse('Answering from the recovered context.'))
       adapter.enqueue(textResponse('Second answer.'))
-      await ctx.agentTeam.sendMessage({ asTask: false, requestId: requestId('post-commit-second'), workspaceId,
+      await ctx.agentTeam.startThread({ kind: 'discussion', requestId: requestId('post-commit-second'), workspaceId,
         projectRef: project.project.projectRef, body: 'Second message', recipients: [memberId] })
 
       await vi.waitFor(() => {
@@ -3350,7 +3347,7 @@ describe('Agent Team wake-slot swap safety (ticket 05)', () => {
       await vi.advanceTimersByTimeAsync(61 * 60_000)
 
       adapter.enqueue(textResponse('Reading the legacy question in the fresh context.'))
-      await ctx.agentTeam.sendMessage({ asTask: false, requestId: requestId('legacy-message'), workspaceId,
+      await ctx.agentTeam.startThread({ kind: 'discussion', requestId: requestId('legacy-message'), workspaceId,
         projectRef: project.project.projectRef, body: 'Please pick this up now', recipients: [memberId] })
 
       const successor = await vi.waitFor(() => {
@@ -3389,7 +3386,7 @@ describe('Agent Team wake-slot swap safety (ticket 05)', () => {
       await vi.advanceTimersByTimeAsync(61 * 60_000)
       const warn = vi.spyOn(ctx.logger, 'warn')
       adapter.enqueue(textResponse('Continuing without a price.'))
-      await ctx.agentTeam.sendMessage({ asTask: false, requestId: requestId('meter-message'), workspaceId,
+      await ctx.agentTeam.startThread({ kind: 'discussion', requestId: requestId('meter-message'), workspaceId,
         projectRef: project.project.projectRef, body: 'Continue please', recipients: [memberId] })
       await agent.whenIdle()
 
@@ -3472,7 +3469,7 @@ describe('Agent Team wake-slot swap input across the commit (ticket 05)', () => 
       })
       const put = holdRecycledPut(ctx)
       try {
-        const sent = await ctx.agentTeam.sendMessage({ asTask: false, requestId: requestId('held-put-message'), workspaceId,
+        const sent = await ctx.agentTeam.startThread({ kind: 'discussion', requestId: requestId('held-put-message'), workspaceId,
           projectRef, body: 'Please pick this up now', recipients: [memberId] })
         expect(sent.kind).toBe('committed')
         await put.entered
@@ -3521,7 +3518,7 @@ describe('Agent Team wake-slot swap input across the commit (ticket 05)', () => 
       const before = adapter.requests.length
       const put = holdRecycledPut(ctx)
       try {
-        await ctx.agentTeam.sendMessage({ asTask: false, requestId: requestId('reject-put-message'), workspaceId,
+        await ctx.agentTeam.startThread({ kind: 'discussion', requestId: requestId('reject-put-message'), workspaceId,
           projectRef, body: 'Please pick this up now', recipients: [memberId] })
         await put.entered
         agent.followup(createUserMessage({ content: [{ type: 'text', text: 'late followup while the commit failed' }], source: { kind: 'user' } }))
@@ -3555,7 +3552,7 @@ describe('Agent Team wake-slot swap input across the commit (ticket 05)', () => 
       const late = createUserMessage({ content: [{ type: 'text', text: 'late followup recorded before activation failed' }], source: { kind: 'user' } })
       const put = holdRecycledPut(ctx)
       try {
-        await ctx.agentTeam.sendMessage({ asTask: false, requestId: requestId('postcommit-late-message'), workspaceId,
+        await ctx.agentTeam.startThread({ kind: 'discussion', requestId: requestId('postcommit-late-message'), workspaceId,
           projectRef, body: 'Please pick this up now', recipients: [memberId] })
         await put.entered
         // The successor will fail to compose, so the old log is the only place

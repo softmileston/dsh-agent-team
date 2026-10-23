@@ -147,8 +147,8 @@ describe('Agent Team real composition', () => {
     const pool = new MemoryMediaPool()
     const first = await load(pool)
     expect(first.agentTeam.status()).toEqual(expect.objectContaining({
-      sequence: 1,
-      operationCount: 1,
+      sequence: 2,
+      operationCount: 2,
       projectCount: 0,
       agentMemberCount: 0,
     }))
@@ -156,8 +156,8 @@ describe('Agent Team real composition', () => {
     expect(first.get('agentTeam')).toBeUndefined()
 
     const second = await load(pool)
-    expect(second.agentTeam.status()).toEqual(expect.objectContaining({ sequence: 1, operationCount: 1 }))
-    expect(pool.media.get('agent_team')!.tables.get('operations')!.size).toBe(1)
+    expect(second.agentTeam.status()).toEqual(expect.objectContaining({ sequence: 2, operationCount: 2 }))
+    expect(pool.media.get('agent_team')!.tables.get('operations')!.size).toBe(2)
   })
 
   it('reopens a domain holding a reply, so a stored link cannot outgrow its record', async () => {
@@ -165,7 +165,7 @@ describe('Agent Team real composition', () => {
     const workspaceId = 'workspace:00000000-0000-4000-8000-0000000000aa' as WorkspaceId
     const first = await load(pool)
     const project = await first.agentTeam.createProject({ requestId: requestId('project'), workspaceId, name: 'engineering', description: 'Engineering work' })
-    const anchor = committed(await first.agentTeam.sendMessage({ requestId: requestId('anchor'), workspaceId,
+    const anchor = committed(await first.agentTeam.startThread({ kind: 'discussion', requestId: requestId('anchor'), workspaceId,
       projectRef: project.project.projectRef, body: 'Please investigate this' }))
     const reply = committed(await first.agentTeam.reply({ requestId: requestId('reply'), workspaceId,
       threadRef: anchor.thread.threadRef, baseRevision: anchor.thread.revision, body: 'Looking now',

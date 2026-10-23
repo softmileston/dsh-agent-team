@@ -94,7 +94,7 @@ describe('large-ledger projection equivalence (issue #21)', () => {
     const factOrder: { readonly projectRef: AgentTeamProjectRef; readonly messageRef: string }[] = []
 
     const startThread = async (label: string, project: AgentTeamProjectRef, workspaceId: typeof alpha | typeof beta): Promise<StartedThread> => {
-      const started = await ledger.sendMessage({ asTask: true, requestId: requestId(`start-${label}`), workspaceId, projectRef: project, body: `Task ${label}\nsecond line`, actor: human })
+      const started = await ledger.startThread({ kind: 'task', requestId: requestId(`start-${label}`), workspaceId, projectRef: project, body: `Task ${label}\nsecond line`, actor: human })
       if (started.value.kind !== 'committed') throw new Error(`expected committed start for ${label}`)
       const entry: StartedThread = {
         label, projectRef: project, workspaceId, taskRef: started.value.task!.taskRef, threadRef: started.value.thread.threadRef,
@@ -379,7 +379,7 @@ describe('large-ledger projection equivalence (issue #21)', () => {
     const expected = new Map<AgentTeamTaskRef, AgentTeamClaimRef[]>()
     const revisions = new Map<AgentTeamTaskRef, number>()
     for (let index = 0; index < 24; index += 1) {
-      const started = await ledger.sendMessage({ asTask: true, requestId: requestId(`bucket-task-${index}`), workspaceId: alpha, projectRef: project.projectRef,
+      const started = await ledger.startThread({ kind: 'task', requestId: requestId(`bucket-task-${index}`), workspaceId: alpha, projectRef: project.projectRef,
         body: `Claim bucket task ${index}`, actor: human })
       if (started.value.kind !== 'committed') throw new Error(`expected committed Task start ${index}`)
       const taskRef = started.value.task!.taskRef
