@@ -134,8 +134,6 @@ import type {
   AgentTeamMainTimelineEntry,
   AgentTeamPostMainMessageRequest,
   AgentTeamPostMainMessageResult,
-  AgentTeamSendMessageRequest,
-  AgentTeamSendMessageResult,
   AgentTeamStartThreadRequest,
   AgentTeamStartThreadResult,
   AgentTeamSetHumanProfileRequest,
@@ -1432,19 +1430,13 @@ export default class AgentTeam extends TypertRemoteService {
     return result.value
   }
 
-  /** Human top-level Thread start; asTask attaches an optional Task overlay. */
-  @Remote('sendMessage')
-  async sendMessage(request: AgentTeamSendMessageRequest): Promise<AgentTeamSendMessageResult> {
-    return this.sendMessageAs(this.humanCall(request.workspaceId), request)
-  }
-
-  /** Human top-level start of a discussion or Task Thread; rules version 2 and later. */
+  /** Human top-level start of a discussion or Task Thread. */
   @Remote('startThread')
   async startThread(request: AgentTeamStartThreadRequest): Promise<AgentTeamStartThreadResult> {
     return this.startThreadAs(this.humanCall(request.workspaceId), request)
   }
 
-  /** Human Main stream Message; rules version 2 and later. Unread Main stream entries come back as a typed outcome. */
+  /** Human Main stream Message. Unread Main stream entries come back as a typed outcome. */
   @Remote('postMainMessage')
   async postMainMessage(request: AgentTeamPostMainMessageRequest): Promise<AgentTeamPostMainMessageResult> {
     return this.postMainMessageAs(this.humanCall(request.workspaceId), request)
@@ -1667,16 +1659,6 @@ export default class AgentTeam extends TypertRemoteService {
   view(request: AgentTeamViewRequest): AgentTeamView {
     this.requireWorkspace(request.workspaceId)
     return this.requireLedger().view(request)
-  }
-
-  /** Agent-only top-level Thread start. Workspace identity is verified against the live binding. */
-  async sendMessageForAgent(agent: Agent, request: AgentTeamSendMessageRequest): Promise<AgentTeamSendMessageResult> {
-    return this.sendMessageAs(this.memberCall(agent, request.workspaceId), request)
-  }
-
-  /** The rules version the Team ledger currently validates under; tools branch their shapes on it. */
-  ledgerRulesVersion(): number {
-    return this.requireLedger().status().rulesVersion
   }
 
   /** Agent-only start of a discussion or Task Thread; Project owners only. */
@@ -2079,10 +2061,6 @@ export default class AgentTeam extends TypertRemoteService {
       await this.dropUnreferencedPrepared(request, error)
       throw error
     }
-  }
-
-  private sendMessageAs(actor: AgentTeamHumanActor | AgentTeamMemberActor, request: AgentTeamSendMessageRequest): Promise<AgentTeamSendMessageResult> {
-    return this.commitMessageAs(actor, request, authorized => this.requireLedger().sendMessage(authorized))
   }
 
   private startThreadAs(actor: AgentTeamHumanActor | AgentTeamMemberActor, request: AgentTeamStartThreadRequest): Promise<AgentTeamStartThreadResult> {
