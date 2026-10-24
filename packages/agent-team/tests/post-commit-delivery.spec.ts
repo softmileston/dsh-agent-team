@@ -218,40 +218,33 @@ describe('post-commit delivery', () => {
     expect(mention).toMatchObject({ text: expect.stringContaining(`team_thread read with the relevant workspace and projectRef`) })
   })
   it('holds an owner\'s ordinary Thread updates until the fifth, then summarizes them once', async () => {
-    const preview = process.env.DSH_AGENT_TEAM_PREVIEW_RULES
-    process.env.DSH_AGENT_TEAM_PREVIEW_RULES = '1'
-    try {
-      const { ctx } = await harness()
-      const project = await ctx.agentTeam.createProject({ requestId: requestId('threshold-project'), workspaceId: alpha, name: 'engineering', description: 'Engineering' })
-      const projectRef = project.project.projectRef
-      const member = await addLiveMember(ctx, projectRef)
-      await ctx.agentTeam.addProjectOwner({ requestId: requestId('threshold-owner'), workspaceId: alpha, projectRef, memberId: member.memberId })
-      const ledger = ctx.agentTeam['ledger']!
-      await ledger.readMainStream({ requestId: requestId('threshold-read-grant'), actor: member, workspaceId: alpha, projectRef })
-      const started = await ledger.startThread({ requestId: requestId('threshold-start'), actor: member, workspaceId: alpha, projectRef, kind: 'discussion', body: 'Plan the release' })
-      if (started.value.kind !== 'committed') throw new Error('expected a started Thread')
-      const { agent, state } = wakeSeam()
-      state.fail = false
-      ctx.agentTeam['handles'].set(member.memberId, { agent, dispose: async () => {} })
+    const { ctx } = await harness()
+    const project = await ctx.agentTeam.createProject({ requestId: requestId('threshold-project'), workspaceId: alpha, name: 'engineering', description: 'Engineering' })
+    const projectRef = project.project.projectRef
+    const member = await addLiveMember(ctx, projectRef)
+    await ctx.agentTeam.addProjectOwner({ requestId: requestId('threshold-owner'), workspaceId: alpha, projectRef, memberId: member.memberId })
+    const ledger = ctx.agentTeam['ledger']!
+    await ledger.readMainStream({ requestId: requestId('threshold-read-grant'), actor: member, workspaceId: alpha, projectRef })
+    const started = await ledger.startThread({ requestId: requestId('threshold-start'), actor: member, workspaceId: alpha, projectRef, kind: 'discussion', body: 'Plan the release' })
+    if (started.value.kind !== 'committed') throw new Error('expected a started Thread')
+    const { agent, state } = wakeSeam()
+    state.fail = false
+    ctx.agentTeam['handles'].set(member.memberId, { agent, dispose: async () => {} })
 
-      let revision = started.value.thread.revision
-      const reply = async (index: number) => {
-        const result = await ctx.agentTeam.reply({ requestId: requestId(`threshold-reply-${index}`), workspaceId: alpha, threadRef: started.value.thread.threadRef,
-          body: `update ${index}`, baseRevision: revision })
-        if (result.kind !== 'committed') throw new Error(`expected a committed reply, got ${result.kind}`)
-        revision = result.thread.revision
-      }
-      for (let index = 1; index <= 4; index += 1) await reply(index)
-      expect(state.calls).toEqual([])
-      await reply(5)
-      expect(state.calls).toHaveLength(1)
-      expect(state.calls[0]!.content[0]).toMatchObject({ type: 'text', text: expect.stringContaining('Delivery: threshold — 5 ordinary update(s)') })
-      expect(state.calls[0]!.content[0]).toMatchObject({ text: expect.stringContaining('Your role: owner of this Project') })
-      await reply(6)
-      expect(state.calls).toHaveLength(1)
-    } finally {
-      if (preview === undefined) delete process.env.DSH_AGENT_TEAM_PREVIEW_RULES
-      else process.env.DSH_AGENT_TEAM_PREVIEW_RULES = preview
+    let revision = started.value.thread.revision
+    const reply = async (index: number) => {
+      const result = await ctx.agentTeam.reply({ requestId: requestId(`threshold-reply-${index}`), workspaceId: alpha, threadRef: started.value.thread.threadRef,
+        body: `update ${index}`, baseRevision: revision })
+      if (result.kind !== 'committed') throw new Error(`expected a committed reply, got ${result.kind}`)
+      revision = result.thread.revision
     }
+    for (let index = 1; index <= 4; index += 1) await reply(index)
+    expect(state.calls).toEqual([])
+    await reply(5)
+    expect(state.calls).toHaveLength(1)
+    expect(state.calls[0]!.content[0]).toMatchObject({ type: 'text', text: expect.stringContaining('Delivery: threshold — 5 ordinary update(s)') })
+    expect(state.calls[0]!.content[0]).toMatchObject({ text: expect.stringContaining('Your role: owner of this Project') })
+    await reply(6)
+    expect(state.calls).toHaveLength(1)
   })
 })
