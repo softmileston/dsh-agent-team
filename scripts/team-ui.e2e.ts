@@ -432,7 +432,10 @@ it('drives the complete opt-in Agent Team journey in real Web', async () => {
   await page.getByRole('menuitem', { name: '编辑项目' }).click()
   const joinEditor = page.getByRole('dialog', { name: '编辑项目' })
   await joinEditor.waitFor()
-  await expect.poll(async () => await joinEditor.locator('[data-team-member-row]').count()).toBe(0)
+  // Rules version 2 replaces the v1 join editor with Project owners: the Human
+  // owns it outright and both Agents wait as addable candidates.
+  await expect.poll(async () => await joinEditor.locator('[data-team-project-owners] [data-team-member-row]').count()).toBe(2)
+  expect(await joinEditor.locator('[data-team-project-owner-human]').count()).toBe(1)
   await joinEditor.getByRole('button', { name: '关闭', exact: true }).click()
   // The 390 breakpoint unmounts sidebar panels (dialog state included), so reopen
   // the dialog from the narrow-expanded sidebar after the collapse settles.
@@ -499,7 +502,7 @@ it('drives the complete opt-in Agent Team journey in real Web', async () => {
   await page.keyboard.press('Escape')
   await page.setViewportSize({ width: 1440, height: 960 })
   await page.getByRole('button', { name: '# delivery' }).click()
-  await page.getByText('还没有消息', { exact: true }).waitFor()
+  await page.getByText('主对话还没有内容', { exact: true }).waitFor()
   await page.screenshot({ path: join(UI02_SHOTS, 'sidebar-projects.png'), fullPage: true })
 
   // Whole-row native drag: a before/after insertion marker and one commit per
@@ -586,7 +589,7 @@ it('drives the complete opt-in Agent Team journey in real Web', async () => {
   await page.getByRole('menuitem', { name: '编辑项目' }).click()
   const projectEditor = page.getByRole('dialog', { name: '编辑项目' })
   await projectEditor.waitFor()
-  expect(await projectEditor.locator('[data-team-member-row]').count()).toBe(0)
+  expect(await projectEditor.locator('[data-team-project-owner-human]').count()).toBe(1)
   const projectSave = projectEditor.getByRole('button', { name: '保存' })
   await expect.poll(async () => await projectSave.isDisabled()).toBe(true)
   await projectEditor.getByLabel('说明').fill('Platform delivery work')
@@ -742,7 +745,7 @@ it('drives the complete opt-in Agent Team journey in real Web', async () => {
   await page.getByRole('button', { name: '# delivery' }).click()
   await page.getByRole('heading', { name: '# delivery' }).waitFor()
   await expect.poll(() => page.locator('[data-team-project]').count()).toBe(1)
-  await page.getByText('还没有消息', { exact: true }).waitFor()
+  await page.getByText('主对话还没有内容', { exact: true }).waitFor()
   await page.screenshot({ path: join(UI02_SHOTS, 'sidebar-projects.png'), fullPage: true })
   await page.screenshot({ path: join(UI01_SHOTS, 'empty-project.png'), fullPage: true })
   const projectComposer = page.getByRole('textbox', { name: '消息内容' })
@@ -3086,15 +3089,15 @@ it('opens a taskless thread from its ref chip in real Web', async () => {
   await page.getByRole('button', { name: '# ref-repro', exact: true }).click()
   await page.getByRole('heading', { name: '# ref-repro', exact: true }).waitFor()
   const projectComposer = page.getByRole('textbox', { name: '消息内容' })
-  await projectComposer.fill('ALPHA-ROOT-MARKER alpha discussion opens here')
-  await page.getByRole('button', { name: '发送', exact: true }).click()
-  await page.locator('[data-team-project] article').filter({ hasText: 'ALPHA-ROOT-MARKER' }).waitFor()
+  const workspaceId = scaffold.ctx.workspaceRegistry.list()[0]!.id
+  const refProject = scaffold.ctx.agentTeam.view({ workspaceId }).projects.find((entry: { name: string }) => entry.name === 'ref-repro')!
+  // Rules version 2 has no top-level send: the Project page's composer posts to
+  // the Main stream, so the cited Thread is started through the Host.
+  const started = await scaffold.ctx.agentTeam.startThread({ requestId: 'e2e-thread-ref' as never, workspaceId,
+    projectRef: refProject.projectRef, kind: 'discussion', body: 'ALPHA-ROOT-MARKER alpha discussion opens here' })
+  const alphaRef = (started as { thread: { threadRef: string } }).thread.threadRef
   // The abbreviated 8-hex spelling: resolution, not spelling, decides
   // linkability.
-  const workspaceId = scaffold.ctx.workspaceRegistry.list()[0]!.id
-  const projection = scaffold.ctx.agentTeam.view({ workspaceId })
-  const alphaThread = projection.threads.find((thread: { taskRef?: string }) => thread.taskRef === undefined)!
-  const alphaRef = alphaThread.threadRef as string
   const alphaShort = `thread:${(alphaRef.slice('thread:'.length) as string).replaceAll('-', '').slice(0, 8).toLowerCase()}`
   await projectComposer.fill(`BETA-ROOT-MARKER citing ${alphaShort} for the chip`)
   await page.getByRole('button', { name: '发送', exact: true }).click()
@@ -3236,6 +3239,12 @@ it('configures the Team page identity from Settings in real Web', async () => {
   await page.getByRole('button', { name: '发送', exact: true }).click()
   const row = page.locator('[data-team-project] article').filter({ hasText: 'PROFILE-NAME-MARKER' })
   await row.waitFor()
+  // A recent Inbox row admits Threads the reader wrote in; the Main stream post
+  // above belongs to no Thread, so the Human's own discussion provides the row.
+  const profileWorkspaceId = scaffold!.ctx.workspaceRegistry.list()[0]!.id
+  const profileProject = scaffold!.ctx.agentTeam.view({ workspaceId: profileWorkspaceId }).projects.find((entry: { name: string }) => entry.name === 'profile-check')!
+  await scaffold!.ctx.agentTeam.startThread({ requestId: 'e2e-profile-thread' as never, workspaceId: profileWorkspaceId,
+    projectRef: profileProject.projectRef, kind: 'discussion', body: 'PROFILE-NAME-MARKER hello from the renamed human' })
   await expect.poll(async () => await row.textContent()).toContain('Ada')
   expect(await row.textContent()).not.toContain('Human')
   // The picture lands on the Human's own message row; the Agent row keeping its
