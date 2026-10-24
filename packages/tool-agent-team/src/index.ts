@@ -726,7 +726,7 @@ const teamMessage = markAgentTeamPreset(defineTool({
       if (args.projectRef === undefined || args.taskRef !== undefined || args.threadRef !== undefined || args.baseRevision !== undefined) throw new Error(`start requires projectRef and does not accept threadRef, taskRef, or baseRevision — ${recoveryFor('start_requires_project').sentence({})}`)
       const kind = args.kind === 'task' ? 'task' : 'discussion'
       const request = { requestId: requestId(agent.id, exec.callId), workspaceId: workspaceOf(args, agent), projectRef: projectRefOf(args.projectRef) as never, body: args.body, ...paths }
-      const result = host.ledgerRulesVersion() >= 2 ? await host.startThreadForAgent(agent, { ...request, kind }) : await host.sendMessageForAgent(agent, { ...request, asTask: kind === 'task' })
+      const result = await host.startThreadForAgent(agent, { ...request, kind })
       return messageOutcome(result, 'start')
     }
     const baseRevision = args.baseRevision
@@ -742,7 +742,7 @@ const teamMessage = markAgentTeamPreset(defineTool({
   },
 }))
 
-function messageOutcome(result: Awaited<ReturnType<AgentTeam['sendMessageForAgent']>> | Awaited<ReturnType<AgentTeam['replyForAgent']>>, action: 'start' | 'reply') {
+function messageOutcome(result: Awaited<ReturnType<AgentTeam['startThreadForAgent']>> | Awaited<ReturnType<AgentTeam['replyForAgent']>>, action: 'start' | 'reply') {
   if (result.kind === 'committed') {
         // A start always delivers to the Members it names (they begin following the new Thread), so only a reply can report names the Thread has never carried.
     const undelivered = 'undeliveredMentions' in result ? result.undeliveredMentions : undefined

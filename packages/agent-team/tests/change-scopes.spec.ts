@@ -103,7 +103,7 @@ async function staysPendingAcrossMacrotask(promise: Promise<unknown>, ms = 15): 
 
 async function startThread(ctx: Context, label: string): Promise<{ readonly threadRef: AgentTeamThreadRef; readonly taskRef: AgentTeamTaskRef; readonly projectRef: AgentTeamProjectRef; readonly revision: number }> {
   const project = await ctx.agentTeam.createProject({ requestId: requestId(`project-${label}`), workspaceId: alpha, name: label, description: `${label} work` })
-  const started = await ctx.agentTeam.sendMessage({ asTask: true, requestId: requestId(`start-${label}`), workspaceId: alpha, projectRef: project.project.projectRef, body: `Task ${label}` })
+  const started = await ctx.agentTeam.startThread({ kind: 'task', requestId: requestId(`start-${label}`), workspaceId: alpha, projectRef: project.project.projectRef, body: `Task ${label}` })
   if (started.kind !== 'committed') throw new Error(`expected committed start, received ${started.kind}`)
   return { threadRef: started.thread.threadRef, taskRef: started.task!.taskRef, projectRef: project.project.projectRef, revision: started.thread.revision }
 }
@@ -361,7 +361,7 @@ describe('ledger change scope and affected member derivation', () => {
       requestId: requestId('iso-project'), workspaceId: alpha, name: 'isolated', description: 'Isolated work',
       memberIds: [], actor: agentTeamHumanActor(),
     })).value
-    const started = (await ledger.sendMessage({ asTask: true,
+    const started = (await ledger.startThread({ kind: 'task',
       requestId: requestId('iso-start'), workspaceId: alpha, projectRef: created.project.projectRef, body: 'Task', actor: agentTeamHumanActor(),
     }))
     if (started.value.kind !== 'committed') throw new Error('expected committed start')

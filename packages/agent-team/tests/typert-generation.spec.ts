@@ -46,7 +46,6 @@ const EXPECTED_REMOTE_METHODS = [
   'resolveMessageRefs',
   'resolveTaskRefs',
   'resolveThreadRefs',
-  'sendMessage',
   'setHumanProfile',
   'startThread',
   'threadHistory',

@@ -113,8 +113,6 @@ import type {
   AgentTeamResolvedTaskRef,
   AgentTeamResolvedThreadRef,
   AgentTeamMessageAttachment,
-  AgentTeamSendMessageRequest,
-  AgentTeamSendMessageResult,
   AgentTeamSetMemberStateRequest,
   AgentTeamStaleRevision,
   AgentTeamStatus,
@@ -194,14 +192,7 @@ const HOST_ACTOR: AgentTeamHostActor = Object.freeze({ kind: 'host', handle: 'ag
 export const TASK_BOARD_FINISHED_PER_PROJECT = 5
 
 /** Highest validation-rules version this build implements; a ledger segment without a marker is version 1. */
-export const AGENT_TEAM_RULES_VERSION = 1
-
-/**
- * Rules version still under construction. Only an explicit preview opt-in adopts it, because its rules may still
- * change: a ledger that adopted it can stop replaying on a later build, and no build without the opt-in opens it.
- */
-export const AGENT_TEAM_PREVIEW_RULES_VERSION = 2
-export const AGENT_TEAM_PREVIEW_RULES_ENV = 'DSH_AGENT_TEAM_PREVIEW_RULES'
+export const AGENT_TEAM_RULES_VERSION = 2
 
 function freezeActor(actor: AgentTeamActor): AgentTeamActor {
   if (actor.kind === 'host') return Object.freeze({ kind: 'host', handle: actor.handle })
@@ -258,12 +249,6 @@ export interface AgentTeamAuthorizedJoinWorkspaceRequest extends AgentTeamJoinWo
 
 export interface AgentTeamAuthorizedLeaveWorkspaceRequest extends AgentTeamLeaveWorkspaceRequest {
   readonly actor: AgentTeamHumanActor
-}
-
-export interface AgentTeamAuthorizedSendMessageRequest extends AgentTeamSendMessageRequest {
-  readonly actor: AgentTeamHumanActor | AgentTeamMemberActor
-  /** Metadata the Host resolved from the attachment cache before the append. */
-  readonly resolvedAttachments?: readonly AgentTeamMessageAttachment[] | undefined
 }
 
 export interface AgentTeamAuthorizedPostMainMessageRequest extends AgentTeamPostMainMessageRequest {
@@ -1092,53 +1077,6 @@ export class AgentTeamLedger {
       await this.table.put(operation.operationId, operation)
       this.applyAndAdvanceProjectionVersion(operation)
       return this.committed(this.projectArchivalResult(operation))
-    })
-  }
-
-  sendMessage(request: AgentTeamAuthorizedSendMessageRequest): Promise<AgentTeamLedgerResult<AgentTeamSendMessageResult>> {
-    return this.enqueue(async () => {
-      const actor = this.assertActorForWorkspace(request.actor, request.workspaceId)
-      const project = this.requireActiveProject(request.workspaceId, request.projectRef)
-      if (actor.kind === 'member') this.requireMemberProject(this.requireMember(actor.memberId), project.projectRef)
-      const body = request.body.trim()
-      if (body === '') throw new Error('message body must not be empty')
-      const recipients = this.mergeBodyMentions(actor.memberId, project.projectRef, body, this.normalizeRecipients(request.actor, request.recipients))
-      const existing = this.state.byRequest.get(request.requestId)
-      if (existing !== undefined) {
-        this.assertSameMessage(existing, request, recipients)
-        return this.resolved(this.messageResult(existing))
-      }
-      if (this.state.rulesVersion >= 2) throw new Error('top-level sends are replaced by startThread from rules version 2')
-      this.assertMentionTargets(project, recipients)
-      // Top-level Task creation is open to every actor: mentioned Members join
-      // the new Thread as followers. Only existing-Thread invitations stay
-      // Human-gated (reply path).
-      const sequence = this.nextSequence()
-      const base = this.operationBase(request, sequence)
-      const asTask = request.asTask === true
-      const threadRef = this.ref('thread')
-      const taskRef = asTask ? this.ref('task') : undefined
-      const task = taskRef === undefined ? undefined
-        : Object.freeze({ taskRef, projectRef: project.projectRef, threadRef, status: 'todo' as const, resolution: 'open' as const })
-      const thread: AgentTeamThread = Object.freeze({ threadRef, ...(taskRef === undefined ? {} : { taskRef }), revision: sequence })
-      const message: AgentTeamMessage = Object.freeze({
-        messageRef: this.ref('message'), projectRef: project.projectRef, threadRef, ...(taskRef === undefined ? {} : { taskRef }),
-        sender: request.actor.memberId, body,
-        ...(request.resolvedAttachments === undefined ? {} : { attachments: request.resolvedAttachments }),
-        topLevel: true, sequence, occurredAt: base.occurredAt,
-      })
-      const started = [this.startAttention(request.actor.memberId, threadRef, sequence),
-        ...recipients.filter(memberId => this.state.members.has(memberId))
-          .map(memberId => this.startAttention(memberId, threadRef, sequence))]
-      const inbox = this.messageInboxDelta(message, request.actor.memberId, recipients, started)
-      const operation: AgentTeamMessageSentOperation = Object.freeze({
-        ...base, kind: 'team/message-sent',
-        data: Object.freeze({ workspaceId: request.workspaceId, mentions: recipients, message,
-          ...(task === undefined ? {} : { task }), thread, inbox }),
-      })
-      await this.table.put(operation.operationId, operation)
-      this.applyAndAdvanceProjectionVersion(operation)
-      return this.committed(this.messageResult(operation))
     })
   }
 
@@ -2670,8 +2608,7 @@ export class AgentTeamLedger {
       const { version } = operation.data
       if (version <= projection.rulesVersion) throw new Error(`agent-team operation ${operation.sequence} adopts rules version ${version} after version ${projection.rulesVersion}`)
       if (version > this.rulesVersion) {
-        const remedy = version <= AGENT_TEAM_PREVIEW_RULES_VERSION ? `it was opened with the ${AGENT_TEAM_PREVIEW_RULES_ENV}=1 preview` : 'open it with a newer release'
-        throw new Error(`agent-team ledger adopted rules version ${version}, but this build implements up to ${this.rulesVersion}; ${remedy}`)
+        throw new Error(`agent-team ledger adopted rules version ${version}, but this build implements up to ${this.rulesVersion}; open it with a newer release`)
       }
       return
     }
@@ -4541,7 +4478,7 @@ export class AgentTeamLedger {
   }
 
   /** Commit projections shared by the Message-sent and Thread-replied results. */
-  private committedMessageResult(operation: AgentTeamMessageSentOperation | AgentTeamThreadRepliedOperation, undelivered: readonly AgentTeamMemberId[] = []) {
+  private committedMessageResult(operation: AgentTeamThreadRepliedOperation, undelivered: readonly AgentTeamMemberId[] = []) {
     return { kind: 'committed' as const, receipt: this.receipt(operation), message: operation.data.message,
       ...(operation.data.task === undefined ? {} : { task: operation.data.task }), thread: operation.data.thread, attention: operation.data.inbox.attention.set,
       directMarkers: operation.data.inbox.directMarkers.added,
@@ -5212,15 +5149,6 @@ export class AgentTeamLedger {
     return Object.freeze({ receipt: this.receipt(operation), recipient: this.requireMember(operation.data.recipientMemberId) })
   }
 
-  private assertSameMessage(operation: AgentTeamOperation, request: AgentTeamAuthorizedSendMessageRequest, recipients: readonly AgentTeamMemberId[]): asserts operation is AgentTeamMessageSentOperation {
-    if (operation.kind !== 'team/message-sent' || !this.sameActor(operation.actor, request.actor)
-      || operation.data.workspaceId !== request.workspaceId || operation.data.message.projectRef !== request.projectRef
-      || operation.data.message.body !== request.body.trim() || !this.sameList(operation.data.mentions, recipients)
-      || !this.sameList(operation.data.message.attachments?.map(attachment => attachment.attachmentId) ?? [],
-        request.resolvedAttachments?.map(attachment => attachment.attachmentId) ?? [])
-      || (request.asTask === true) !== (operation.data.task !== undefined)) this.throwRequestCollision(request.requestId)
-  }
-
   private assertSameReply(operation: AgentTeamOperation, request: AgentTeamAuthorizedReplyRequest, recipients: readonly AgentTeamMemberId[]): asserts operation is AgentTeamThreadRepliedOperation {
     if (operation.kind !== 'team/thread-replied' || !this.sameActor(operation.actor, request.actor)
       || operation.data.workspaceId !== request.workspaceId
@@ -5389,10 +5317,6 @@ export class AgentTeamLedger {
   private projectArchivalResult(operation: AgentTeamProjectArchivedOperation): AgentTeamArchiveProjectResult {
     return Object.freeze({ receipt: this.receipt(operation), project: operation.data.project,
       releasedClaims: operation.data.claims })
-  }
-
-  private messageResult(operation: AgentTeamMessageSentOperation): Extract<AgentTeamSendMessageResult, { kind: 'committed' }> {
-    return Object.freeze(this.committedMessageResult(operation))
   }
 
   private replyResult(operation: AgentTeamThreadRepliedOperation, undelivered: readonly AgentTeamMemberId[] = []): Extract<AgentTeamReplyResult, { kind: 'committed' }> {

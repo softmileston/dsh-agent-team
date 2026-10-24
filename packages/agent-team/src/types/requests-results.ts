@@ -249,21 +249,6 @@ export interface AgentTeamJoinProjectResult {
   readonly memberId: AgentTeamMemberId
 }
 
-/** Intent to create one top-level Message and Thread, with an optional Task. */
-export interface AgentTeamSendMessageRequest {
-  readonly requestId: AgentTeamRequestId
-  readonly workspaceId: WorkspaceId
-  readonly projectRef: AgentTeamProjectRef
-  readonly body: string
-  readonly recipients?: readonly AgentTeamMemberId[]
-  /** Uploaded attachments to reference; the Host resolves and verifies each id. */
-  readonly attachments?: readonly AgentTeamAttachmentId[] | undefined
-  /** Agent-supplied absolute file paths; the Host validates each, copies the bytes into the attachment cache, and produces the same metadata. */
-  readonly attachmentPaths?: readonly string[] | undefined
-  readonly confirmationToken?: AgentTeamConfirmationToken
-  readonly asTask?: boolean
-}
-
 /** Upload one composer attachment into the Team attachment cache. */
 export interface AgentTeamPutAttachmentRequest {
   readonly requestId: AgentTeamRequestId
@@ -397,9 +382,9 @@ export interface AgentTeamReplyRequest {
   readonly recipients?: readonly AgentTeamMemberId[]
   /** The Message this reply answers. The Host refuses an unknown ref or one from another Thread; the parent's author joins the recipients, so answering a Member reaches them. */
   readonly replyToMessageRef?: AgentTeamMessageRef
-  /** Agent-supplied absolute file paths, resolved like sendMessage's. */
+  /** Agent-supplied absolute file paths, resolved like startThread's. */
   readonly attachmentPaths?: readonly string[] | undefined
-  /** Attachment cache IDs from the Human picker, resolved like sendMessage's. */
+  /** Attachment cache IDs from the Human picker, resolved like startThread's. */
   readonly attachments?: readonly AgentTeamAttachmentId[] | undefined
   readonly confirmationToken?: AgentTeamConfirmationToken
 }
@@ -451,7 +436,7 @@ export interface AgentTeamMemberNotFollowing {
   readonly revision?: number
 }
 
-export interface AgentTeamSendMessageCommittedResult {
+export interface AgentTeamStartThreadResult {
   readonly kind: 'committed'
   readonly receipt: AgentTeamOperationReceipt
   readonly message: AgentTeamMessage
@@ -460,11 +445,6 @@ export interface AgentTeamSendMessageCommittedResult {
   readonly attention: readonly AgentTeamThreadAttention[]
   readonly directMarkers: readonly AgentTeamDirectMarker[]
 }
-
-export type AgentTeamSendMessageResult =
-  | AgentTeamSendMessageCommittedResult
-  | AgentTeamConfirmationRequired
-  | AgentTeamMemberNotFollowing
 
 /** Which Thread a Main stream card stands for, and the current state it shows. A card is a projection of its Thread, never a stored fact: it changes as the Thread does. */
 export interface AgentTeamMainThreadCard {
@@ -609,7 +589,6 @@ export interface AgentTeamStartThreadRequest {
   readonly attachmentPaths?: readonly string[] | undefined
 }
 
-export type AgentTeamStartThreadResult = AgentTeamSendMessageCommittedResult
 
 export interface AgentTeamReplyCommittedResult {
   readonly kind: 'committed'

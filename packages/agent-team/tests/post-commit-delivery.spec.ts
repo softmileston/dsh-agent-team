@@ -98,7 +98,7 @@ describe('post-commit delivery', () => {
     const waiter = nextChange(ctx.agentTeam)
     const before = ctx.agentTeam.status().sequence
     // The message commits durably; only the recipient's wake fails afterwards.
-    const sent = await ctx.agentTeam.sendMessage({ asTask: false, requestId: requestId('wake-fail'), workspaceId: alpha,
+    const sent = await ctx.agentTeam.startThread({ kind: 'discussion', requestId: requestId('wake-fail'), workspaceId: alpha,
       projectRef: project.project.projectRef, body: 'Needs a look', recipients: [member.memberId] })
     expect(sent.kind).toBe('committed')
     if (sent.kind !== 'committed') return
@@ -118,7 +118,7 @@ describe('post-commit delivery', () => {
     expect(failed).toContain("session 'session:post-commit-delivery'")
     expect(failed).toContain(`requestId '${sent.receipt.requestId}'`)
     expect(failed).toContain(`operationId '${sent.receipt.operationId}'`)
-    expect(failed).toContain("operation 'team/message-sent'")
+    expect(failed).toContain("operation 'team/thread-started'")
     expect(failed).toContain(`sequence ${sent.receipt.sequence}`)
     expect(failed).toContain('attempt 1')
     expect(failed).toContain('Error: wake failed (test seam)')
@@ -161,7 +161,7 @@ describe('post-commit delivery', () => {
     ctx.agentTeam['handles'].set(member.memberId, { agent, dispose: async () => {} })
     const lines = (spy: typeof info): string[] => spy.mock.calls.map(args => String(args[0]))
 
-    const sent = await ctx.agentTeam.sendMessage({ asTask: false, requestId: requestId('duplicate-send'), workspaceId: alpha,
+    const sent = await ctx.agentTeam.startThread({ kind: 'discussion', requestId: requestId('duplicate-send'), workspaceId: alpha,
       projectRef: project.project.projectRef, body: 'Needs a look', recipients: [member.memberId] })
     expect(sent.kind).toBe('committed')
     expect(state.calls).toHaveLength(1)
@@ -186,7 +186,7 @@ describe('post-commit delivery', () => {
     ctx.on('agent-team/committed', () => { throw new Error('listener failed (test seam)') })
     const project = await ctx.agentTeam.createProject({ requestId: requestId('listener-project'), workspaceId: alpha, name: 'engineering', description: 'Engineering' })
     expect(project.project.projectRef).toBeDefined()
-    expect(ctx.agentTeam.status().sequence).toBe(2)
+    expect(ctx.agentTeam.status().sequence).toBe(3)
   })
 
   it('keeps an invariant divergence loud on the caller frame instead of swallowing it', async () => {
@@ -195,34 +195,27 @@ describe('post-commit delivery', () => {
     await expect(ctx.agentTeam.createProject({ requestId: requestId('invariant-project'), workspaceId: alpha, name: 'engineering', description: 'Engineering' }))
       .rejects.toThrow(/invariant violated/)
     // The loud path still reports a real commit: the operation is durable.
-    expect(ctx.agentTeam.status().sequence).toBe(2)
+    expect(ctx.agentTeam.status().sequence).toBe(3)
   })
 
   it('wakes a Member through its Main stream markers: a mention, and its own grant of ownership', async () => {
-    const preview = process.env.DSH_AGENT_TEAM_PREVIEW_RULES
-    process.env.DSH_AGENT_TEAM_PREVIEW_RULES = '1'
-    try {
-      const { ctx } = await harness()
-      const project = await ctx.agentTeam.createProject({ requestId: requestId('main-project'), workspaceId: alpha, name: 'engineering', description: 'Engineering' })
-      const member = await addLiveMember(ctx, project.project.projectRef)
-      const { agent, state } = wakeSeam()
-      state.fail = false
-      ctx.agentTeam['handles'].set(member.memberId, { agent, dispose: async () => {} })
+    const { ctx } = await harness()
+    const project = await ctx.agentTeam.createProject({ requestId: requestId('main-project'), workspaceId: alpha, name: 'engineering', description: 'Engineering' })
+    const member = await addLiveMember(ctx, project.project.projectRef)
+    const { agent, state } = wakeSeam()
+    state.fail = false
+    ctx.agentTeam['handles'].set(member.memberId, { agent, dispose: async () => {} })
 
-      await ctx.agentTeam.addProjectOwner({ requestId: requestId('main-owner'), workspaceId: alpha, projectRef: project.project.projectRef, memberId: member.memberId })
-      const owner = state.calls.at(-1)?.content[0]
-      expect(owner).toMatchObject({ type: 'text', text: expect.stringContaining('made you an owner of Project engineering') })
+    await ctx.agentTeam.addProjectOwner({ requestId: requestId('main-owner'), workspaceId: alpha, projectRef: project.project.projectRef, memberId: member.memberId })
+    const owner = state.calls.at(-1)?.content[0]
+    expect(owner).toMatchObject({ type: 'text', text: expect.stringContaining('made you an owner of Project engineering') })
 
-      const posted = await ctx.agentTeam.postMainMessage({ requestId: requestId('main-post'), workspaceId: alpha, projectRef: project.project.projectRef,
-        body: 'Over to you', recipients: [member.memberId] })
-      expect(posted.kind).toBe('committed')
-      const mention = state.calls.at(-1)?.content[0]
-      expect(mention).toMatchObject({ type: 'text', text: expect.stringContaining('Direct Main stream mention') })
-      expect(mention).toMatchObject({ text: expect.stringContaining(`team_thread read with the relevant workspace and projectRef`) })
-    } finally {
-      if (preview === undefined) delete process.env.DSH_AGENT_TEAM_PREVIEW_RULES
-      else process.env.DSH_AGENT_TEAM_PREVIEW_RULES = preview
-    }
+    const posted = await ctx.agentTeam.postMainMessage({ requestId: requestId('main-post'), workspaceId: alpha, projectRef: project.project.projectRef,
+      body: 'Over to you', recipients: [member.memberId] })
+    expect(posted.kind).toBe('committed')
+    const mention = state.calls.at(-1)?.content[0]
+    expect(mention).toMatchObject({ type: 'text', text: expect.stringContaining('Direct Main stream mention') })
+    expect(mention).toMatchObject({ text: expect.stringContaining(`team_thread read with the relevant workspace and projectRef`) })
   })
   it('holds an owner\'s ordinary Thread updates until the fifth, then summarizes them once', async () => {
     const preview = process.env.DSH_AGENT_TEAM_PREVIEW_RULES
