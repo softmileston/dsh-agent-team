@@ -64,8 +64,8 @@ async function threadWithUnreadReply(
     name: 'engineering', description: 'Engineering work', memberIds: [actor.memberId], actor: agentTeamHumanActor() })).value.project
   // The human anchors the Thread: a Member that writes the anchor auto-follows
   // it, which would already satisfy the unread gate and hide what is under test.
-  const started = (await ledger.sendMessage({ requestId: 'start' as AgentTeamRequestId, workspaceId,
-    projectRef: project.projectRef, body: 'Thread anchor', asTask: true, actor: agentTeamHumanActor() })).value
+  const started = (await ledger.startThread({ requestId: 'start' as AgentTeamRequestId, workspaceId,
+    projectRef: project.projectRef, body: 'Thread anchor', kind: 'task', actor: agentTeamHumanActor() })).value
   if (started.kind !== 'committed' || started.task === undefined) throw new Error('setup failed')
   await ledger.changeAttention({ requestId: 'follow' as AgentTeamRequestId, workspaceId,
     taskRef: started.task.taskRef, action: 'follow', actor })

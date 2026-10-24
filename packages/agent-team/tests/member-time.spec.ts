@@ -101,7 +101,7 @@ async function addLedgerMember(
 async function seededThread(): Promise<{ readonly test: TeamHarness; readonly ledger: AgentTeamLedger; readonly actor: AgentTeamMemberActor; readonly taskRef: AgentTeamTask['taskRef']; readonly humanRead: AgentTeamThreadReadResult }> {
   const test = await harness()
   const project = await test.ctx.agentTeam.createProject({ requestId: requestId('project'), workspaceId: alpha, name: 'engineering', description: 'Engineering work' })
-  const started = withTask(committed(await test.ctx.agentTeam.sendMessage({ asTask: true, requestId: requestId('start'), workspaceId: alpha, projectRef: project.project.projectRef, body: 'Implement member time awareness' })))
+  const started = withTask(committed(await test.ctx.agentTeam.startThread({ kind: 'task', requestId: requestId('start'), workspaceId: alpha, projectRef: project.project.projectRef, body: 'Implement member time awareness' })))
   const taskRef = started.task.taskRef
   const ledger = replayLedgerAtConstruction(test)
   const { actor } = await addLedgerMember(ledger, project.project.projectRef)
@@ -291,8 +291,9 @@ describe('discovery projections hang off the same per-fact source', () => {
     // The claimant opens a discussion of its own — writing a Thread's anchor is
     // what follows it — and the Human's answer is what puts that Thread in the
     // claimant's own Inbox.
-    const started = committed((await ledger.sendMessage({ requestId: requestId('taskless'), workspaceId: alpha, projectRef,
-      asTask: false, body: 'A discussion nobody claimed', actor })).value)
+    await ledger.addProjectOwner({ requestId: requestId('taskless-owner'), actor: agentTeamHumanActor(), workspaceId: alpha, projectRef, memberId: actor.memberId })
+    const started = committed((await ledger.startThread({ requestId: requestId('taskless'), workspaceId: alpha, projectRef,
+      kind: 'discussion', body: 'A discussion nobody claimed', actor })).value)
     committed((await ledger.reply({ requestId: requestId('taskless-reply'), workspaceId: alpha, threadRef: started.thread.threadRef,
       body: 'An answer', baseRevision: started.thread.revision, actor: agentTeamHumanActor() })).value)
     const items = ledger.inbox(actor, { workspaceId: alpha }).items

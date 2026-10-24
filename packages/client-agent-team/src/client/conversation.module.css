@@ -375,59 +375,6 @@
   font-size: 11px;
   line-height: 20px;
 }
-/* One entry's state leads the entry row at the same x on every entry, rather than trailing the identity line where a
-   continuation row (no identity of its own) would leave it floating. Shipped rows lead with state the same way. */
-.stateCluster {
-  align-items: center;
-  display: inline-flex;
-  flex: none;
-  gap: 6px;
-}
-.statusWord {
-  color: var(--dsw-alias-label-secondary);
-  font-size: 11px;
-  line-height: 18px;
-}
-/* State first, then the door. The state sits outside the button, because a labeled button prunes its descendants from the
-   accessibility tree and the owner stack would lose the roster it names. A 390 column can wrap the door under the state. */
-.entryLine {
-  align-items: center;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin: 4px 0 0;
-  max-width: 100%;
-}
-/* The line sits outside the body column and a short Message hugs its content, so the line takes the whole column back: the
-   state must open the entry at the column's left edge. */
-.messageRow .entryLine {
-  align-self: stretch;
-}
-.entryRow {
-  align-items: center;
-  background: none;
-  border: 0;
-  color: var(--dsw-alias-label-tertiary);
-  cursor: pointer;
-  display: inline-flex;
-  font-size: 12px;
-  gap: 6px;
-  line-height: 18px;
-  padding: 2px 0;
-}
-.entryRow:hover,
-.entryRow:focus-visible { color: var(--dsw-alias-label-primary); }
-.entryRow:focus-visible {
-  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));
-  outline-offset: 2px;
-}
-.entryArrow {
-  align-items: center;
-  display: inline-flex;
-  transition: transform 120ms ease;
-}
-.entryRow:hover .entryArrow,
-.entryRow:focus-visible .entryArrow { transform: translateX(2px); }
 /* Literal human text: the shared MessageText primitive or segmented mention spans need the same pre-wrap metrics. Vertical
    rhythm comes from row padding and column gaps, so block margins collapse to first/last-child edges only. */
 .messageText {
@@ -598,9 +545,6 @@
 
 @media (prefers-reduced-motion: reduce) {
   .loadingMark { animation: none; }
-  .entryArrow { transition: none; }
-  .entryRow:hover .entryArrow,
-  .entryRow:focus-visible .entryArrow { transform: none; }
 }
 
 /* One run is one same-sender reply turn: a pure grouping block with no hover border or fill (boundaries come from the turn
