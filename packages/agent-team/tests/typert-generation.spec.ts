@@ -48,6 +48,7 @@ const EXPECTED_REMOTE_METHODS = [
   'resolveThreadRefs',
   'setHumanProfile',
   'startThread',
+  'taskBoard',
   'threadHistory',
   'threadObservations',
   'updateMember',

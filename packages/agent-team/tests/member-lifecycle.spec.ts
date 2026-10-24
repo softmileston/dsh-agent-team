@@ -333,7 +333,7 @@ describe('Agent Team Member lifecycle', () => {
       ['team_attention', { action: 'status', threadRef: 'thread:missing' }],
       ['team_message', { action: 'start', projectRef: 'project:missing', body: 'Do not route implicitly' }],
       ['team_dm', { memberRef: 'member:missing', body: 'Do not route implicitly' }],
-      ['team_claim', { action: 'list', taskRef: 'task:missing' }],
+      ['team_task', { action: 'list', taskRef: 'task:missing' }],
     ] as const) {
       const omitted = await ctx.tools.execute({ signal: new AbortController().signal, callId: ToolCallId(`global-missing-${name}`),
         name, arguments: args, agent })
@@ -450,11 +450,11 @@ describe('Agent Team Member lifecycle', () => {
     expect(owned).toContain('messageRef')
     expect(owned).not.toContain('does not accept')
     expect(await rejected('team_message', { action: 'reply', threadRef, body: 'no token' })).toMatch(/team_thread read/)
-    expect(await rejected('team_claim', { action: 'done', taskRef, claimRef: 'claim:missing' })).toMatch(/team_thread read/)
-    expect(await rejected('team_claim', { action: 'done', baseRevision: 1, claimRef: 'claim:missing' })).toContain('taskRef')
-    expect(await rejected('team_claim', { action: 'list' })).toContain('taskRef')
-    expect(await rejected('team_claim', { action: 'claim', taskRef, baseRevision: 1, direction: 'd', claimRef: 'claim:missing' })).toContain('direction')
-    expect(await rejected('team_claim', { action: 'done', taskRef, baseRevision: 1, direction: 'd' })).toContain('claimRef')
+    expect(await rejected('team_task', { action: 'done', taskRef, claimRef: 'claim:missing' })).toMatch(/team_thread read/)
+    expect(await rejected('team_task', { action: 'done', baseRevision: 1, claimRef: 'claim:missing' })).toContain('taskRef')
+    expect(await rejected('team_task', { action: 'list' })).toContain('taskRef')
+    expect(await rejected('team_task', { action: 'claim', taskRef, baseRevision: 1, direction: 'd', claimRef: 'claim:missing' })).toContain('direction')
+    expect(await rejected('team_task', { action: 'done', taskRef, baseRevision: 1, direction: 'd' })).toContain('claimRef')
     expect(await rejected('team_message', { action: 'reply', threadRef, baseRevision: 1, replyToMessageRef: 'message:23011', body: 'bad target' })).toContain('recorded Message')
     expect(await rejected('team_message', { action: 'reply', threadRef, baseRevision: 1, attachments: ['relative/shot.png'], body: 'bad attachment' })).toMatch(/absolute|does not exist/)
     expect(await rejected('team_message', { action: 'start', body: 'no project' })).toContain('projectRef')
@@ -466,11 +466,11 @@ describe('Agent Team Member lifecycle', () => {
     const peerClaim = await ctx.agentTeam.changeClaimForAgent(peerAgent, { requestId: requestId('shape-peer-claim'), workspaceId, taskRef, action: 'claim', baseRevision: peerRead.thread.revision, direction: 'Peer claim on this Task' })
     if (peerClaim.kind !== 'committed') throw new Error(`expected committed peer claim, received ${peerClaim.kind}`)
     const builderRead = await ctx.agentTeam.readThreadForAgent(agent, { requestId: requestId('shape-builder-read'), workspaceId, threadRef })
-    const ownAttempt = await ctx.tools.execute({ signal: new AbortController().signal, callId: ToolCallId('shape-own-claim'), name: 'team_claim', arguments: { action: 'done', taskRef, baseRevision: builderRead.thread.revision, claimRef: peerClaim.claim.claimRef }, agent })
+    const ownAttempt = await ctx.tools.execute({ signal: new AbortController().signal, callId: ToolCallId('shape-own-claim'), name: 'team_task', arguments: { action: 'done', taskRef, baseRevision: builderRead.thread.revision, claimRef: peerClaim.claim.claimRef }, agent })
     expect(ownAttempt.isError).toBe(true)
     if (!ownAttempt.isError) throw new Error('expected an ownership rejection')
     expect(ownAttempt.error.message).toContain('own Claim')
-    expect(ownAttempt.error.message).toContain('team_claim list')
+    expect(ownAttempt.error.message).toContain('team_task list')
   })
 
   it('archives a Member: session disposed and archived, private memory kept, claims released', async () => {
@@ -1068,7 +1068,10 @@ describe('Agent Team Member lifecycle', () => {
     if (invitation.kind !== 'committed') throw new Error(`expected committed invitation, received ${invitation.kind}`)
 
     const inbox = await call('team_inbox', {})
-    expect(inbox).toMatchObject({ totalDirectCount: 1, items: [expect.objectContaining({ taskRef: started.task!.taskRef, directCount: 1 })] })
+    // An owner learns of the ownership change as a Main stream marker, and the
+    // invitation as a Thread marker: two direct notices, no body text.
+    expect(inbox).toMatchObject({ totalDirectCount: 2, items: [expect.objectContaining({ taskRef: started.task!.taskRef, directCount: 1 })],
+      main: [expect.objectContaining({ directCount: 1 })] })
     expect(JSON.stringify(inbox)).not.toContain('Builder, please investigate')
 
     const firstRead = await call('team_thread', { action: 'read', taskRef: started.task!.taskRef })
@@ -1100,7 +1103,7 @@ describe('Agent Team Member lifecycle', () => {
     expect(ctx.agentTeam.inboxForAgent(reviewerAgent, { workspaceId }).items.map(item => item.thread.threadRef).sort()).toEqual([enrolledThreadRef, started.thread.threadRef].sort())
 
     expect(await call('team_attention', { action: 'unfollow', taskRef: started.task!.taskRef })).toMatchObject({ following: false })
-    const claim = await call('team_claim', { action: 'claim', taskRef: started.task!.taskRef, direction: 'implementation', baseRevision: dropped.revision })
+    const claim = await call('team_task', { action: 'claim', taskRef: started.task!.taskRef, direction: 'implementation', baseRevision: dropped.revision })
     // A committed Claim mutation returns the authoritative affected Claim;
     // the structured claims archive and Task status stay real (compat) —
     // the render is what omits the archive, never the structured value.
@@ -1108,12 +1111,12 @@ describe('Agent Team Member lifecycle', () => {
       claim: expect.objectContaining({ owner: builder.status.member.memberId, direction: 'implementation', state: 'active' }),
       claims: [expect.objectContaining({ owner: builder.status.member.memberId, direction: 'implementation', state: 'active' })] })
     expect(await call('team_attention', { action: 'status', taskRef: started.task!.taskRef })).toMatchObject({ following: true })
-    expect(await call('team_claim', { action: 'list', taskRef: started.task!.taskRef })).toMatchObject({ kind: 'listed', claims: [expect.objectContaining({ direction: 'implementation' })] })
-    const done = await call('team_claim', { action: 'done', taskRef: started.task!.taskRef, claimRef: claim.claim.claimRef, baseRevision: claim.revision })
+    expect(await call('team_task', { action: 'list', taskRef: started.task!.taskRef })).toMatchObject({ kind: 'listed', claims: [expect.objectContaining({ direction: 'implementation' })] })
+    const done = await call('team_task', { action: 'done', taskRef: started.task!.taskRef, claimRef: claim.claim.claimRef, baseRevision: claim.revision })
     expect(done).toMatchObject({ kind: 'committed', action: 'done', status: 'in_review', claim: expect.objectContaining({ state: 'done' }),
       claims: [expect.objectContaining({ direction: 'implementation', state: 'done' })] })
-    const secondClaim = await call('team_claim', { action: 'claim', taskRef: started.task!.taskRef, direction: 'follow-up', baseRevision: done.revision })
-    const released = await call('team_claim', { action: 'release', taskRef: started.task!.taskRef, claimRef: secondClaim.claim.claimRef, baseRevision: secondClaim.revision })
+    const secondClaim = await call('team_task', { action: 'claim', taskRef: started.task!.taskRef, direction: 'follow-up', baseRevision: done.revision })
+    const released = await call('team_task', { action: 'release', taskRef: started.task!.taskRef, claimRef: secondClaim.claim.claimRef, baseRevision: secondClaim.revision })
     expect(released).toMatchObject({ kind: 'committed', action: 'release', claim: expect.objectContaining({ direction: 'follow-up', state: 'released' }),
       claims: [expect.objectContaining({ direction: 'implementation', state: 'done' }), expect.objectContaining({ direction: 'follow-up', state: 'released' })] })
 
@@ -1125,11 +1128,13 @@ describe('Agent Team Member lifecycle', () => {
     const history = await call('team_thread', { action: 'history', taskRef: started.task!.taskRef, limit: 2 })
     expect(history).toMatchObject({ kind: 'history', anchor: { body: 'Investigate the pull protocol' }, claims: expect.arrayContaining([expect.objectContaining({ direction: 'implementation' })]) })
     expect(typeof history.cursor).toBe('number')
-    expect(await call('team_inbox', {})).toMatchObject({ totalUnreadCount: 1, items: [expect.objectContaining({ taskRef: started.task!.taskRef })] })
+    // The owner-change Main stream marker is still unread; only the Thread row carries new work.
+    expect(await call('team_inbox', {})).toMatchObject({ totalUnreadCount: 2, items: [expect.objectContaining({ taskRef: started.task!.taskRef })],
+      main: [expect.objectContaining({ unreadCount: 1 })] })
     expect(await call('team_message', { action: 'reply', taskRef: started.task!.taskRef, body: 'History did not read', baseRevision: unreadAfterClaims.thread.revision }))
       .toMatchObject({ kind: 'unread_required', unreadCount: 1 })
     await call('team_thread', { action: 'read', taskRef: started.task!.taskRef })
-    expect(await call('team_inbox', {})).toMatchObject({ totalUnreadCount: 0, items: [] })
+    expect(await call('team_inbox', {})).toMatchObject({ totalUnreadCount: 1, items: [], main: [expect.objectContaining({ unreadCount: 1 })] })
   })
 
   it('delivers a direct message through the tool and injects it into the live recipient session', async () => {

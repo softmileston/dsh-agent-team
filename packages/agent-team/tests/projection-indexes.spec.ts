@@ -424,8 +424,8 @@ describe('large-ledger projection equivalence (issue #21)', () => {
     // The same bucket feeds 「who is on this Task」: the radar names the owner
     // while a live Claim exists, and stops naming a Task whose Claims are all
     // finished, released, or closed.
-    const radarOwners = (taskRef: AgentTeamTaskRef): string[] => ledger.view({ workspaceId: alpha, topLevelOnly: true, includeActivities: false, direction: 'before', includeCatalog: true })
-      .activeTaskThreads.find(row => row.taskRef === taskRef)?.members.map(member => member.memberId) ?? []
+    const radarOwners = (taskRef: AgentTeamTaskRef): string[] => ledger.taskBoard(agentTeamHumanActor(), { workspaceId: alpha })
+      .open.find(item => item.task.taskRef === taskRef)?.liveClaimOwners.map(member => member.memberId) ?? []
     expect(radarOwners(taskRefs[0]!)).toEqual([memberId])
     expect(radarOwners(taskRefs[1]!)).toEqual([])
     expect(radarOwners(taskRefs[3]!)).toEqual([memberId])

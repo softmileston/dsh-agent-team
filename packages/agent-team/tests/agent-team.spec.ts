@@ -39,6 +39,13 @@ afterEach(async () => {
   await Promise.all(cleanups.splice(0).map(cleanup => cleanup()))
 })
 
+/** The in-progress and in-review rows of a Member's Task board, shaped like the address-book radar the board replaced. */
+function inFlight(ledger: AgentTeamLedger, workspaceId: WorkspaceId, memberId: AgentTeamAgentMember['memberId']) {
+  const actor = { kind: 'member' as const, memberId, handle: ledger.getMember(memberId)!.handle }
+  return ledger.taskBoard(actor, { workspaceId }).open.filter(item => item.task.status === 'in_progress' || item.task.status === 'in_review')
+    .map(item => ({ threadRef: item.threadRef, taskRef: item.task.taskRef, status: item.task.status, subject: item.subject, taskNumber: item.taskNumber, members: item.liveClaimOwners }))
+}
+
 async function harness(
   pool = new MemoryMediaPool(),
   workspaceIds = [alpha],
@@ -1007,7 +1014,7 @@ describe('AgentTeam durable Thread Attention ledger', () => {
     withTask(committed((await ledger.startThread({ kind: 'task', requestId: requestId('idle'), workspaceId: alpha, projectRef: project.project.projectRef, body: 'Idle work', actor: agentTeamHumanActor() })).value))
     // The bystander never wrote in either active Thread, yet the radar surfaces
     // both to them: admission is the Task being active, not participation.
-    const radar = ledger.view({ workspaceId: alpha, topLevelOnly: true, includeActivities: false, direction: 'before', includeCatalog: true }, bystander.memberId).activeTaskThreads
+    const radar = inFlight(ledger, alpha, bystander.memberId)
     expect(radar.map(row => row.threadRef).sort()).toEqual([claimed.task.threadRef, reviewed.task.threadRef].sort())
     const claimedRow = radar.find(row => row.threadRef === claimed.task.threadRef)!
     expect(claimedRow).toMatchObject({ status: 'in_progress', subject: 'Claimed work', taskNumber: 1 })
@@ -1028,7 +1035,7 @@ describe('AgentTeam durable Thread Attention ledger', () => {
     // queue carries it, and so does the radar, independently.
     const inbox = ledger.inbox(reader, { workspaceId: alpha })
     expect(inbox.items.some(item => item.thread.threadRef === started.task.threadRef)).toBe(true)
-    const radar = ledger.view({ workspaceId: alpha, topLevelOnly: true, includeActivities: false, direction: 'before', includeCatalog: true }, reader.memberId).activeTaskThreads
+    const radar = inFlight(ledger, alpha, reader.memberId)
     expect(radar.map(row => row.threadRef)).toEqual([started.task.threadRef])
   })
 
@@ -1044,13 +1051,13 @@ describe('AgentTeam durable Thread Attention ledger', () => {
     const betaTask = withTask(committed((await ledger.startThread({ kind: 'task', requestId: requestId('beta-task'), workspaceId: beta, projectRef: betaProject.projectRef, body: 'Beta work', actor })).value))
     committed((await ledger.changeClaim({ requestId: requestId('beta-claim'), workspaceId: beta, taskRef: betaTask.task.taskRef, action: 'claim', direction: 'beta angle', baseRevision: betaTask.thread.revision, actor })).value)
     // Beta's active Task does not leak into the alpha radar.
-    expect(ledger.view({ workspaceId: alpha, topLevelOnly: true, direction: 'before', includeCatalog: true }, member.memberId).activeTaskThreads).toEqual([])
+    expect(inFlight(ledger, alpha, member.memberId)).toEqual([])
     // An active Task whose Project is then archived leaves the radar.
     const alphaTask = withTask(committed((await ledger.startThread({ kind: 'task', requestId: requestId('alpha-task'), workspaceId: alpha, projectRef: alphaProject.projectRef, body: 'Alpha work', actor })).value))
     committed((await ledger.changeClaim({ requestId: requestId('alpha-claim'), workspaceId: alpha, taskRef: alphaTask.task.taskRef, action: 'claim', direction: 'alpha angle', baseRevision: alphaTask.thread.revision, actor })).value)
-    expect(ledger.view({ workspaceId: alpha, topLevelOnly: true, direction: 'before', includeCatalog: true }, member.memberId).activeTaskThreads.map(row => row.threadRef)).toEqual([alphaTask.task.threadRef])
+    expect(inFlight(ledger, alpha, member.memberId).map(row => row.threadRef)).toEqual([alphaTask.task.threadRef])
     await ledger.archiveProject({ requestId: requestId('alpha-arch'), workspaceId: alpha, projectRef: alphaProject.projectRef, actor: agentTeamHumanActor() })
-    expect(ledger.view({ workspaceId: alpha, topLevelOnly: true, direction: 'before', includeCatalog: true }, member.memberId).activeTaskThreads).toEqual([])
+    expect(inFlight(ledger, alpha, member.memberId)).toEqual([])
   })
 
   it('leaves the view radar empty when no Task has an active Claim', async () => {
@@ -1061,7 +1068,27 @@ describe('AgentTeam durable Thread Attention ledger', () => {
     await makeOwner(ledger, project.project.projectRef, actor.memberId)
     // A taskful Thread with no Claim stays at todo and never enters the radar.
     withTask(committed((await ledger.startThread({ kind: 'task', requestId: requestId('todo'), workspaceId: alpha, projectRef: project.project.projectRef, body: 'Unclaimed task', actor })).value))
-    expect(ledger.view({ workspaceId: alpha, topLevelOnly: true, direction: 'before', includeCatalog: true }, actor.memberId).activeTaskThreads).toEqual([])
+    expect(inFlight(ledger, alpha, actor.memberId)).toEqual([])
+  })
+
+  it('boards an in-progress Task that has been untouched for longer than a read window', async () => {
+    const test = await harness()
+    const project = await test.ctx.agentTeam.createProject({ requestId: requestId('project'), workspaceId: alpha, name: 'engineering', description: 'Engineering work' })
+    const ledger = ledgerAtBoot(test)
+    const { actor, member } = await addLedgerMember(ledger, project.project.projectRef)
+    const busy = withTask(committed((await ledger.startThread({ kind: 'task', requestId: requestId('busy'), workspaceId: alpha, projectRef: project.project.projectRef, body: 'Moving target', actor: agentTeamHumanActor() })).value))
+    const quiet = withTask(committed((await ledger.startThread({ kind: 'task', requestId: requestId('quiet'), workspaceId: alpha, projectRef: project.project.projectRef, body: 'Quiet task', actor: agentTeamHumanActor() })).value))
+    committed((await ledger.changeClaim({ requestId: requestId('quiet-claim'), workspaceId: alpha, taskRef: quiet.task.taskRef, action: 'claim', direction: 'on it', baseRevision: quiet.thread.revision, actor })).value)
+    // Forty later Messages push the claim far outside any bounded read window.
+    let revision = busy.thread.revision
+    for (let index = 0; index < 40; index += 1) {
+      const reply = committed((await ledger.reply({ requestId: requestId(`busy-${index}`), workspaceId: alpha, taskRef: busy.task.taskRef,
+        body: `Progress ${index}`, baseRevision: revision, actor: agentTeamHumanActor() })).value)
+      revision = reply.thread.revision
+    }
+    const board = ledger.taskBoard(actor, { workspaceId: alpha }).open.filter(item => item.task.taskRef === quiet.task.taskRef)
+    expect(board).toHaveLength(1)
+    expect(board[0]).toMatchObject({ task: { status: 'in_progress' }, liveClaimOwners: [expect.objectContaining({ memberId: member.memberId })] })
   })
 
   // State-requests 04: a bounded read returns the catalog of what it shows, not
@@ -1091,7 +1118,6 @@ describe('AgentTeam durable Thread Attention ledger', () => {
     expect(page.threads.map(thread => thread.threadRef)).toEqual([shown.thread.threadRef])
     expect(page.tasks.map(task => task.taskRef)).toEqual([shown.task!.taskRef])
     expect(page.taskNumbers).toEqual([{ taskRef: shown.task!.taskRef, taskNumber: shown.taskNumber }])
-    expect(page.activeTaskThreads.map(row => row.taskRef)).toEqual([shown.task!.taskRef])
     expect(page.claims.map(claim => claim.taskRef)).toEqual([shown.task!.taskRef])
     const named = ledger.view({ workspaceId: alpha, threadRef: started.thread.threadRef, limit: 1 })
     expect(named.threads.map(thread => thread.threadRef)).toEqual([started.thread.threadRef])
@@ -1103,7 +1129,6 @@ describe('AgentTeam durable Thread Attention ledger', () => {
     expect(catalog.threads).toHaveLength(40)
     expect(catalog.tasks).toHaveLength(40)
     expect(catalog.taskNumbers).toHaveLength(40)
-    expect(catalog.activeTaskThreads).toHaveLength(40)
     expect(catalog.claims).toHaveLength(40)
     expect(catalog.claims.every(claim => claim.owner === member.memberId)).toBe(true)
   })

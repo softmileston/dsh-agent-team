@@ -30,6 +30,8 @@ const PRODUCED_KINDS: readonly string[] = Object.freeze([
   'dm_requires_member',
   'claim_requires_direction',
   'claim_close_requires_ref',
+  'promote_requires_thread',
+  'task_action_requires_task',
   'list_takes_task_only',
   'claim_owned_by_another',
   'reply_target_unknown',
