@@ -2,9 +2,9 @@
 
 > 本工作项是 Channel → Project 的重设计容器：把“参与派生注意力”改成“责任派生注意力”。它不定义当前产品行为——行为以 `packages/` 源码、测试与 `docs/` 双语对为准。
 
-**状态**：设计已收敛，按九张工单实施中（01–05 已交付）。
+**状态**：设计已收敛，按九张工单实施中（01–07 已交付）。
 
-**最后核对日期**：2026-10-23
+**最后核对日期**：2026-10-24
 
 ## 入口
 
@@ -19,7 +19,8 @@
 - 01 已完成（`feat: read the project spelling of stored channel records`），等待发布到稳定 profile。
 - 02 已完成（`refactor: rename channel to project across the bundle`），等待 Human 在本地 dev profile 用真实 `agent_team.sqlite` 副本验收。发布顺序：先发布含 01、不含 02 的版本并装到稳定 profile，再让开发 profile 使用 02。
 - 03 已完成（`feat: record rules version adoption in the team ledger`）。04 已完成（`feat: add project owners to the team ledger behind rules version 2`）。05 已完成（`feat: add the main stream and owner-only thread start behind rules version 2` 及 Client 的 `feat: show the project main stream with thread cards behind rules version 2`）。06 可以开始；04–05 的规则按版本 2 编写，但 `AGENT_TEAM_RULES_VERSION` 在 06 完成前保持 1，真实 ledger 不会采用版本 2。
-- 05 的 Client 把版本 2 的主对话放在独立组件里（`TeamMainStream` 等）；06 启用版本 2 时删除 Client 的版本 1 路径（旧 feed、`@all`、邀请确认），Host 的版本 1 规则只保留 replay 校验。
+- 06 已交付：通知按角色投递（owner 的 Main stream 与普通 Thread 消息按 5 条阈值汇总，其余 immediate）、Inbox 的 Main stream 行、persona 与 `team-domain-model` skill，`AGENT_TEAM_RULES_VERSION` 升到 2，Client 删除版本 1 的旧 feed、`@all` 与邀请确认；Host 侧版本 1 规则只保留 replay 校验（`rules-v1-replay.spec.ts`）。预览开关 `DSH_AGENT_TEAM_PREVIEW_RULES` 一并删除。下一步是 Human 在 dev profile 用真实 ledger 试用一周，再开始 08。
+- 07 已交付：`taskBoard` 投影与 Remote 方法、Human 看板与 `team_task` 读同一份 Host 投影，`team_claim` 并入 `team_task`，`team_view` 不再返回 active task threads。
 - `spec.md` §13 三项探针：DM 的 Workspace 边界已在 Host `sendDm` 校验；旧 accept 缺 `acceptedClaimRefs` 时已有回退，03 补测试；规则标记与启动恢复的写入顺序已在 03 查清并由 `initialize()` 保证。
 - 版本 2 的规则在 04–06 间逐步落地；预览开关 `DSH_AGENT_TEAM_PREVIEW_RULES=1` 只用于一次性 `DSH_HOME`（浏览器测试即如此），不可用于与稳定 profile 共用的 ledger。
 - 无需要 Human 拍板的未决产品问题。
@@ -31,8 +32,8 @@
 - [x] 03 规则版本机制
 - [x] 04 Agent owner 与 Project member 派生
 - [x] 05 项目主对话与开 Thread 权限
-- [ ] 06 按责任投递、Inbox 与 Agent 指引；启用规则版本 2；之后 Human 在 dev profile 试用一周，按 `spec.md` §11 的指标复盘再继续
-- [ ] 07 Task board 投影与 `team_task`
+- [x] 06 按责任投递、Inbox 与 Agent 指引；启用规则版本 2（交付后 Human 在 dev profile 试用一周，按 `spec.md` §11 的指标复盘再继续）
+- [x] 07 Task board 投影与 `team_task`
 - [ ] 08 Task 负责人、转交与验收限制；启用规则版本 3
 - [ ] 09 待验收积压与停滞提醒
 - [ ] durable 结论进入正式文档双语对与 `CHANGELOG.md`
